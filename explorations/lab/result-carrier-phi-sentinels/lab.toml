@@ -1,0 +1,8 @@
+slug = "result-carrier-phi-sentinels"
+title = "Result Carrier Phi Sentinels"
+summary = "Demonstrate how a final phi can carry a search result or a -1 sentinel out of a loop."
+status = "stable"
+tags = ["llvmlite", "ssa", "phi", "search", "sentinel"]
+run = "uv run python explorations/lab/result-carrier-phi-sentinels/run.py"
+agent_authored = true
+safe_to_smoke = true

@@ -1,0 +1,8 @@
+slug = "musttail-chunked-memory-ops"
+title = "Chunked musttail memory ops"
+summary = "Explore tail-recursive copy and compare helpers that chunk by 8, 4, and 1 bytes."
+status = "draft"
+tags = ["llvmlite", "musttail", "tail-call", "memory", "ir"]
+run = "uv run python explorations/lab/musttail-chunked-memory-ops/run.py"
+agent_authored = true
+safe_to_smoke = false
