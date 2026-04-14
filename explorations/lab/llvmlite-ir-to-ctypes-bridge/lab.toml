@@ -1,0 +1,8 @@
+slug = "llvmlite-ir-to-ctypes-bridge"
+title = "llvmlite IR to ctypes bridge"
+summary = "Map a small subset of llvmlite IR types into ctypes and validate the mapping against live JIT globals and functions."
+status = "stable"
+tags = ["llvmlite", "ctypes", "interop", "jit", "abi"]
+run = "uv run python explorations/lab/llvmlite-ir-to-ctypes-bridge/run.py"
+agent_authored = true
+safe_to_smoke = false

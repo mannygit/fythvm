@@ -1,0 +1,8 @@
+slug = "llvmlite-host-symbol-exposure"
+title = "llvmlite host symbol exposure"
+summary = "Show a JITed module calling a host-owned Python callback through llvm.add_symbol."
+status = "stable"
+tags = ["llvmlite", "jit", "host-callback", "symbols", "interop"]
+run = "uv run python explorations/lab/llvmlite-host-symbol-exposure/run.py"
+agent_authored = true
+safe_to_smoke = false
