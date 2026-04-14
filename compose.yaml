@@ -1,0 +1,20 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    environment:
+      UV_CACHE_DIR: /workspace/.uv-cache
+      UV_LINK_MODE: copy
+      UV_PYTHON_DOWNLOADS: never
+    volumes:
+      - .:/workspace
+      - uv-cache:/workspace/.uv-cache
+      - venv:/workspace/.venv
+
+volumes:
+  uv-cache:
+  venv:
