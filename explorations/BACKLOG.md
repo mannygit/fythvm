@@ -48,6 +48,20 @@ None.
     later experiments change one concern at a time.
   - Lab: `explorations/lab/llvmlite-minimal-jit-pipeline/`
 
+- `llvmlite-module-lifecycle-pattern`
+  - Title: Module lifecycle pattern for llvmlite JIT modules
+  - Goal: Demonstrate an explicit host-driven lifecycle for JIT modules without
+    `llvm.global_ctors` or `llvm.global_dtors`.
+  - Why it matters: MCJIT lifecycle behavior should be predictable across macOS and
+    Linux and should not depend on loader-driven startup or teardown semantics.
+  - Success signal: The lab shows explicit load/init/fini/unload/reload behavior,
+    generation-safe stale callback rejection, and deterministic finalization before
+    `remove_module()`.
+  - Takeaway: Treat JIT lifecycle as a host-owned protocol with explicit init/fini and
+    generation tracking instead of delegating setup and teardown to global ctor/dtor
+    machinery.
+  - Lab: `explorations/lab/llvmlite-module-lifecycle-pattern/`
+
 ## Icebox
 
 None.

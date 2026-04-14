@@ -1,0 +1,8 @@
+slug = "llvmlite-module-lifecycle-pattern"
+title = "Module lifecycle pattern for llvmlite JIT modules"
+summary = "Show a host-owned explicit init/fini lifecycle with generation-safe reload on top of llvmlite MCJIT."
+status = "stable"
+tags = ["llvmlite", "jit", "lifecycle", "mcjit", "reload"]
+run = "uv run python explorations/lab/llvmlite-module-lifecycle-pattern/run.py"
+agent_authored = true
+safe_to_smoke = false
