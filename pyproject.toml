@@ -14,13 +14,13 @@ dependencies = [
 [project.scripts]
 fythvm = "fythvm:main"
 
-[tool.uv]
+[dependency-groups]
 # Dependency management is handled exclusively via uv.
 # Do NOT use pip, poetry, or any other tool to install or modify dependencies.
 # To add a dependency:     uv add <package>
 # To add a dev dependency: uv add --dev <package>
 # To install the project:  uv sync
-dev-dependencies = [
+dev = [
     "pytest>=8",
     "ruff>=0.9",
     "mypy>=1.0",
