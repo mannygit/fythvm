@@ -30,3 +30,8 @@ uv run mypy src
 - Use the provided Warp environment: `ghcr.io/mannygit/warp-env-fythvm:latest`
 - Never suggest or use `brew install llvm cmake` or BYO LLVM as an alternative.
 - If a command fails due to missing `llvmlite`, `cmake`, or `LLVM`, instruct the user to use Docker — do not attempt to fix it on the host.
+
+## Project Skills
+
+When asked to add, update, or continue an experiment under `explorations/`, use the
+project skill at `.codex/skills/add-exploration-lab/SKILL.md`.

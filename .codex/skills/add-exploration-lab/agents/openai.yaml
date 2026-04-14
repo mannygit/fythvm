@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Exploration Lab"
+  short_description: "Create or extend exploration labs"
+  default_prompt: "Use $add-exploration-lab to add or update an exploration in this repo."
