@@ -25,7 +25,8 @@ through the mapped struct, and calls the function through the mapped signature.
 uv run python explorations/lab/llvmlite-ir-to-ctypes-bridge/run.py
 ```
 
-Local macOS or Windows development should use Docker:
+Supported native host development is available on Intel macOS with Python 3.14.
+Other local hosts should use Docker:
 
 ```bash
 docker compose run --rm dev uv run python explorations/lab/llvmlite-ir-to-ctypes-bridge/run.py

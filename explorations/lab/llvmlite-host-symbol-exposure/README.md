@@ -28,7 +28,8 @@ The JIT module:
 uv run python explorations/lab/llvmlite-host-symbol-exposure/run.py
 ```
 
-Local macOS or Windows development should use Docker:
+Supported native host development is available on Intel macOS with Python 3.14.
+Other local hosts should use Docker:
 
 ```bash
 docker compose run --rm dev uv run python explorations/lab/llvmlite-host-symbol-exposure/run.py

@@ -95,7 +95,10 @@ uv run python explorations/lab/<slug>/run.py
 uv run pytest
 ```
 
-In local macOS or Windows development, use Docker:
+For supported host-local development on Intel macOS with Python 3.14, run the lab
+and tests directly with `uv`.
+
+For other local hosts, use Docker:
 
 ```bash
 docker compose run --rm dev uv run python explorations/lab/<slug>/run.py

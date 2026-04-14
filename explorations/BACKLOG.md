@@ -58,6 +58,16 @@ close out. Keep the backlog small and explicit.
   - Success signal: The lab shows insertion and traversal semantics in a way that is
     simpler and more reliable than the old code.
 
+- `mcjit-global-ctor-dtor-negative-control`
+  - Title: MCJIT global ctor/dtor negative control on macOS
+  - Goal: Isolate the unsupported `llvm.global_ctors` / `llvm.global_dtors` path as a
+    quarantined demonstration of why the explicit lifecycle pattern exists.
+  - Why it matters: The lifecycle design is easier to trust when the risky alternative
+    is captured as evidence instead of left as folklore.
+  - Success signal: The lab documents the unsupported path, runs only as a manual or
+    expected-failure experiment, and makes clear that production code must not depend
+    on ctor/dtor execution through llvmlite MCJIT on macOS.
+
 ## In Progress
 
 None.

@@ -3,7 +3,8 @@
 ## Question
 
 How should a llvmlite MCJIT module handle setup, teardown, unload, and reload when
-global constructor/destructor machinery is intentionally off the table?
+global constructor/destructor machinery is intentionally off the table, especially
+on macOS where that ctor/dtor path is the unsafe one for llvmlite MCJIT?
 
 ## Setup
 
@@ -22,13 +23,19 @@ The runtime context is passed in as an opaque pointer shape (`i8*` in the emitte
 IR, standing in for a conceptual `void*`). The lab uses a simple host-owned context
 with counters so the side effects are visible.
 
+Running this lab natively on Intel macOS is material, not just convenient. The
+explicit lifecycle pattern here is partly a response to the MCJIT + Mach-O global
+constructor/destructor problem, so native macOS execution validates the replacement
+pattern on the platform that motivated it.
+
 ## How to Run
 
 ```bash
 uv run python explorations/lab/llvmlite-module-lifecycle-pattern/run.py
 ```
 
-Local macOS or Windows development should use Docker:
+Supported native host development is available on Intel macOS with Python 3.14.
+Other local hosts should use Docker:
 
 ```bash
 docker compose run --rm dev uv run python explorations/lab/llvmlite-module-lifecycle-pattern/run.py
@@ -38,6 +45,7 @@ docker compose run --rm dev uv run python explorations/lab/llvmlite-module-lifec
 
 The run output demonstrates:
 
+- the current target triple, so the platform under test is visible in the output
 - the generated IR omits `llvm.global_ctors` and `llvm.global_dtors`
 - the host can load a module, resolve lifecycle callbacks, and initialize it
 - repeated `module_init()` and `module_fini()` requests are safe no-ops after the
@@ -50,6 +58,11 @@ The run output demonstrates:
 This is a runnable reference implementation of the simplest viable lifecycle pattern:
 host-owned registry, explicit init/fini, host-owned runtime context, and generation
 tracking from day one.
+
+That matters more now that the lab can run natively on Intel macOS. The output is
+no longer just evidence that the pattern works in the abstract or on Linux under
+Docker. It is evidence that the explicit lifecycle protocol works on the real Mach-O
+host where the implicit ctor/dtor path is the one under suspicion.
 
 ## Pattern / Takeaway
 
@@ -67,6 +80,10 @@ explicit host-driven protocol:
 That pattern is more portable and testable than trying to recover native-loader-like
 startup semantics through LLVM global ctor/dtor features.
 
+Native macOS execution makes this takeaway stronger. The lab is not merely arguing
+for a cleaner abstraction. It is demonstrating a practical replacement on the host
+platform that makes the native ctor/dtor route a bad bet for llvmlite MCJIT.
+
 ## Non-Obvious Failure Modes
 
 Do not keep using callback addresses after `remove_module()`. Once the engine removes
@@ -82,6 +99,11 @@ Another easy misunderstanding is assuming the runtime can lean on constructor or
 destructor behavior the way a normal compiled binary might. This lab intentionally
 avoids that path. The point is to make lifecycle semantics host-owned and explicit,
 not implicit, magical, or process-exit-driven.
+
+It is also easy to treat a Linux-only or Docker-only run as sufficient evidence for
+this design. That misses part of the point. The pattern exists partly because of
+platform-specific behavior on macOS, so native Mach-O execution is materially better
+evidence than a containerized Linux run.
 
 This lab also inherits the engine-lifetime rule from the minimal JIT pipeline lab:
 keep the execution engine alive while any derived callback address is still in use.
@@ -110,7 +132,8 @@ runtime design is complete.
 - What is the cleanest extension of this pattern to batch initialization with rollback
   on first failure?
 - How should dependency ordering be modeled once modules depend on each other?
-- Should a future lab isolate the unsupported global ctor/dtor path as a quarantined
-  expected-failure experiment?
+- A follow-on lab should isolate the unsupported global ctor/dtor path as a
+  quarantined negative-control experiment on macOS so the reason for avoiding it is
+  preserved as evidence, not just advice.
 - What should the runtime context ABI look like once the toy counter-based context is
   replaced by real VM-owned services and handles?

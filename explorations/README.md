@@ -28,7 +28,8 @@ The canonical inner run command is:
 uv run python explorations/lab/<slug>/run.py
 ```
 
-On local macOS or Windows development, wrap that with Docker:
+Supported native host development is available on Intel macOS with Python 3.14.
+Other local hosts should wrap that with Docker:
 
 ```bash
 docker compose run --rm dev uv run python explorations/lab/<slug>/run.py

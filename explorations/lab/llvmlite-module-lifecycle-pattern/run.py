@@ -297,9 +297,22 @@ def main() -> None:
     runtime_ctx = RuntimeContext()
     registry = LifecycleRegistry()
     module_id = "demo_lifecycle_module"
+    host_triple = binding.get_default_triple()
 
     print("== Question ==")
-    print("How should a llvmlite MCJIT module manage explicit init/fini, unload, and reload?")
+    print(
+        "How should a llvmlite MCJIT module manage explicit init/fini, unload, and "
+        "reload when implicit ctor/dtor machinery is not trusted?"
+    )
+    print()
+
+    print("== Host Context ==")
+    print("target triple:", host_triple)
+    print(
+        "why native host execution matters: this pattern is meant to replace "
+        "implicit ctor/dtor behavior on the real host platform, not just work "
+        "inside a Linux container"
+    )
     print()
 
     record_v1 = registry.load_module(module_id)
@@ -373,7 +386,9 @@ def main() -> None:
     print("== Takeaway ==")
     print(
         "Treat module lifecycle as a host-owned protocol: explicit init/fini, "
-        "generation tracking, and finalization before remove_module()."
+        "generation tracking, and finalization before remove_module(). Native "
+        "Mach-O execution makes this more than an abstract design preference: it "
+        "shows the replacement pattern working on the platform that motivated it."
     )
 
 
