@@ -1,0 +1,31 @@
+[project]
+name = "fythvm"
+version = "0.1.0"
+description = "Fyth virtual machine"
+readme = "README.md"
+authors = [
+    { name = "Manuel Arias", email = "manuel.arias@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "llvmlite>=0.47",
+]
+
+[project.scripts]
+fythvm = "fythvm:main"
+
+[tool.uv]
+# Dependency management is handled exclusively via uv.
+# Do NOT use pip, poetry, or any other tool to install or modify dependencies.
+# To add a dependency:     uv add <package>
+# To add a dev dependency: uv add --dev <package>
+# To install the project:  uv sync
+dev-dependencies = [
+    "pytest>=8",
+    "ruff>=0.9",
+    "mypy>=1.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
