@@ -1,0 +1,8 @@
+slug = "ssa-phi-merge"
+title = "SSA Phi Merge"
+summary = "Demonstrate when a control-flow join needs phi and when select is enough."
+status = "stable"
+tags = ["llvmlite", "ssa", "phi", "control-flow", "ir"]
+run = "uv run python explorations/lab/ssa-phi-merge/run.py"
+agent_authored = true
+safe_to_smoke = true

@@ -1,0 +1,8 @@
+slug = "ir-inspection-tooling"
+title = "llvmlite IR inspection tooling"
+summary = "Capture raw llvmlite IR early, annotate it lightly, and diff the emitted LLVM text without hiding the underlying module."
+status = "stable"
+tags = ["llvmlite", "ir", "inspection", "diff", "debugging"]
+run = "uv run python explorations/lab/ir-inspection-tooling/run.py"
+agent_authored = true
+safe_to_smoke = false

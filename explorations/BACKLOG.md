@@ -5,14 +5,6 @@ close out. Keep the backlog small and explicit.
 
 ## Ready
 
-- `ssa-phi-merge`
-  - Title: SSA / phi merge patterns in llvmlite
-  - Goal: Show how to model a value that comes from multiple predecessor blocks.
-  - Why it matters: Control-flow-heavy codegen is hard to reason about without a
-    reliable phi pattern.
-  - Success signal: The lab shows a working merge shape, the generated IR, and the
-    conditions where phi is required instead of ad hoc temporaries.
-
 - `metaprogramming-ir-builders`
   - Title: Metaprogramming patterns for repetitive IR construction
   - Goal: Capture a reusable way to generate repeated llvmlite builder code without
@@ -21,15 +13,6 @@ close out. Keep the backlog small and explicit.
     debuggable.
   - Success signal: The lab demonstrates one pattern that improves reuse and clearly
     states when the abstraction helps versus when it obscures the IR shape.
-
-- `ir-inspection-tooling`
-  - Title: IR inspection and debugging helpers
-  - Goal: Explore small tooling shapes for printing, diffing, or annotating emitted
-    IR during experimentation.
-  - Why it matters: Faster feedback makes it easier to validate codegen ideas before
-    they harden into package code.
-  - Success signal: The lab yields one or more practical helper patterns that make IR
-    exploration faster without hiding the emitted LLVM.
 
 - `delayed-ir-export-pattern`
   - Title: Deferred IR export and finalization pattern
@@ -57,16 +40,6 @@ close out. Keep the backlog small and explicit.
     path needs redesign rather than extraction.
   - Success signal: The lab shows insertion and traversal semantics in a way that is
     simpler and more reliable than the old code.
-
-- `mcjit-global-ctor-dtor-negative-control`
-  - Title: MCJIT global ctor/dtor negative control on macOS
-  - Goal: Isolate the unsupported `llvm.global_ctors` / `llvm.global_dtors` path as a
-    quarantined demonstration of why the explicit lifecycle pattern exists.
-  - Why it matters: The lifecycle design is easier to trust when the risky alternative
-    is captured as evidence instead of left as folklore.
-  - Success signal: The lab documents the unsupported path, runs only as a manual or
-    expected-failure experiment, and makes clear that production code must not depend
-    on ctor/dtor execution through llvmlite MCJIT on macOS.
 
 ## In Progress
 
@@ -134,6 +107,42 @@ None.
   - Takeaway: Keep the memory model and the logical stack model visible at the same
     time so stack semantics stay interpretable.
   - Lab: `explorations/lab/llvmlite-jit-stack-operations/`
+
+- `ssa-phi-merge`
+  - Title: SSA / phi merge patterns in llvmlite
+  - Goal: Show how to model a value that comes from multiple predecessor blocks.
+  - Why it matters: Control-flow-heavy codegen is hard to reason about without a
+    reliable phi pattern.
+  - Success signal: The lab shows a working merge shape, the generated IR, and the
+    conditions where phi is required instead of ad hoc temporaries.
+  - Takeaway: Use `phi` at real control-flow joins, and use `select` only when both
+    candidate values are safe to compute eagerly in straight line.
+  - Lab: `explorations/lab/ssa-phi-merge/`
+
+- `ir-inspection-tooling`
+  - Title: IR inspection and debugging helpers
+  - Goal: Explore small tooling shapes for printing, diffing, or annotating emitted
+    IR during experimentation.
+  - Why it matters: Faster feedback makes it easier to validate codegen ideas before
+    they harden into package code.
+  - Success signal: The lab yields one or more practical helper patterns that make IR
+    exploration faster without hiding the emitted LLVM.
+  - Takeaway: Capture raw IR early and diff the raw text later; keep annotations thin
+    enough that the LLVM itself stays visible.
+  - Lab: `explorations/lab/ir-inspection-tooling/`
+
+- `mcjit-global-ctor-dtor-negative-control`
+  - Title: MCJIT global ctor/dtor negative control on macOS
+  - Goal: Isolate the unsupported `llvm.global_ctors` / `llvm.global_dtors` path as a
+    quarantined demonstration of why the explicit lifecycle pattern exists.
+  - Why it matters: The lifecycle design is easier to trust when the risky alternative
+    is captured as evidence instead of left as folklore.
+  - Success signal: The lab documents the unsupported path, runs only as a manual or
+    expected-failure experiment, and makes clear that production code must not depend
+    on ctor/dtor execution through llvmlite MCJIT on macOS.
+  - Takeaway: Keep risky ctor/dtor behavior as a quarantined negative control with a
+    safe default run and any runtime attempt isolated in a child process.
+  - Lab: `explorations/lab/mcjit-global-ctor-dtor-negative-control/`
 
 ## Icebox
 

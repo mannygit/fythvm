@@ -1,0 +1,8 @@
+slug = "mcjit-global-ctor-dtor-negative-control"
+title = "Quarantined MCJIT global ctor/dtor negative control"
+summary = "Emit ctor/dtor IR, show the safe observation path, and quarantine any runtime attempt in a child process."
+status = "draft"
+tags = ["llvmlite", "mcjit", "macos", "negative-control", "llvm"]
+run = "uv run python explorations/lab/mcjit-global-ctor-dtor-negative-control/run.py"
+agent_authored = true
+safe_to_smoke = true
