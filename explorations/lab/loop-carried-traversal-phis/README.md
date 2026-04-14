@@ -3,20 +3,28 @@
 ## Question
 
 How do you carry a traversal cursor and a derived count through a linked-list loop
-without confusing the two?
+without confusing the two, and how far can a Pythonic wrapper go before it starts
+hiding the CFG?
 
 ## Setup
 
-This lab builds a tiny recursive `Node` struct in llvmlite and emits two functions:
+This lab builds a tiny recursive `Node` struct in llvmlite and emits two functions in
+two styles:
+
+- raw functions that spell out every block and phi incoming explicitly
+- Pythonic functions that use a local loop helper plus a small node-view helper to
+  reduce repetitive block positioning and pointer arithmetic
+
+Both variants emit the same exported operations:
 
 - `count_nodes`, which walks a list with a loop-carried cursor phi and a loop-carried
   count phi
 - `index_of_value`, which uses the same traversal shape but exits early with a result
   phi when the current node value matches the target
 
-The example is intentionally small and explicit. It is the linked-list traversal shape
-that showed up in `~/fyth` when the code learned to keep cursor state and derived state
-separate.
+The raw version is the source of truth. The Pythonic version is a readability layer
+that keeps the same CFG visible while leaning on Python context managers and helper
+objects.
 
 ## How to Run
 
@@ -36,9 +44,9 @@ docker compose run --rm dev uv run python explorations/lab/loop-carried-traversa
 The output prints:
 
 - the linked list shape built in Python
-- the generated IR for both traversal functions
-- a short phi summary that highlights the loop header cursor and count values
-- runtime results for:
+- the generated IR for the raw and Pythonic traversal functions
+- a short phi summary for each variant
+- runtime results for both variants:
   - counting the whole list
   - finding the first element
   - finding a middle element
@@ -48,6 +56,8 @@ The output prints:
 The key result is that the cursor phi and the count phi are different pieces of state.
 The cursor moves through the linked structure; the count tracks how many nodes have
 already been seen. The early-exit path then returns the derived count as the answer.
+The Pythonic layer does not hide those facts; it just makes the repeated loop setup
+easier to read.
 
 ## Pattern / Takeaway
 
@@ -57,6 +67,9 @@ the count or accumulator as the thing that records what the loop has learned so 
 
 For search-style loops, return the derived result through a separate exit phi rather
 than trying to smuggle it through the cursor variable.
+
+The Pythonic variant shows that you can do this while still using a local context
+manager for the loop shape and a tiny helper for repeated pointer access.
 
 ## Non-Obvious Failure Modes
 
@@ -73,6 +86,9 @@ The third mistake is to return the traversal cursor when you really want the der
 state. A successful search can return the count or index, but that is a separate value
 from the cursor that got you there.
 
+The fourth mistake is to let the Pythonic wrapper hide the blocks. If the helper stops
+showing where the head, body, and exit blocks are, it has gone too far.
+
 ## Apply When
 
 Use this pattern when:
@@ -81,6 +97,8 @@ Use this pattern when:
 - carrying both a cursor and a derived state through a loop
 - lowering `count`, `nth`, or `find` style operations into SSA form
 - you want an early-exit search that still preserves the loop-carried count
+- you want a small amount of Python structure around otherwise explicit SSA without
+  losing the CFG
 
 ## Avoid When
 
@@ -92,11 +110,14 @@ Do not collapse the traversal cursor into the accumulator unless the traversal s
 is genuinely one and the same. That makes the IR harder to read and usually hides the
 real dataflow.
 
+Do not keep pushing the Pythonic wrapper until it starts inventing control flow. The
+raw form should remain easy to reconstruct from the lab output.
+
 ## Next Questions
 
 - How does the same traversal shape look when the loop carries a pointer plus a more
   complex derived payload than a simple count?
 - When is it better to return a struct of traversal results instead of an index or
   sentinel?
-- What helper patterns make loop-heavy llvmlite IR easier to generate without hiding
-  the actual backedges?
+- Which loop helper shapes are worth reusing in other labs, and which ones are too
+  specific to linked-list traversal?

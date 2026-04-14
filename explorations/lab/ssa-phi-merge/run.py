@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from llvmlite import binding, ir
@@ -12,8 +13,47 @@ from llvmlite import binding, ir
 class CompiledModule:
     llvm_ir: str
     engine: binding.ExecutionEngine
-    branch_addr: int
+    raw_branch_addr: int
+    pythonic_branch_addr: int
     select_addr: int
+
+
+class BranchMergeShape:
+    """Local helper that keeps the blocks explicit while removing positioning noise."""
+
+    def __init__(self, function: ir.Function, prefix: str):
+        self.builder = ir.IRBuilder(function.append_basic_block(f"{prefix}.entry"))
+        self.then_block = function.append_basic_block(f"{prefix}.then")
+        self.else_block = function.append_basic_block(f"{prefix}.else")
+        self.merge_block = function.append_basic_block(f"{prefix}.merge")
+        self._incoming: list[tuple[ir.Value, object]] = []
+
+    def branch(self, condition: ir.Value) -> None:
+        self.builder.cbranch(condition, self.then_block, self.else_block)
+
+    @contextmanager
+    def then(self):
+        self.builder.position_at_end(self.then_block)
+        yield self
+        if self.builder.basic_block.terminator is None:
+            self.builder.branch(self.merge_block)
+
+    @contextmanager
+    def otherwise(self):
+        self.builder.position_at_end(self.else_block)
+        yield self
+        if self.builder.basic_block.terminator is None:
+            self.builder.branch(self.merge_block)
+
+    def remember(self, value: ir.Value) -> None:
+        self._incoming.append((value, self.builder.basic_block))
+
+    def finish(self, ty: ir.Type, name: str = "merged") -> ir.Value:
+        self.builder.position_at_end(self.merge_block)
+        merged = self.builder.phi(ty, name=name)
+        for value, block in self._incoming:
+            merged.add_incoming(value, block)
+        return merged
 
 
 def _configure_llvm() -> None:
@@ -21,12 +61,7 @@ def _configure_llvm() -> None:
     binding.initialize_native_asmprinter()
 
 
-def build_phi_module() -> ir.Module:
-    i64 = ir.IntType(64)
-    i1 = ir.IntType(1)
-    module = ir.Module(name="ssa_phi_merge")
-    module.triple = binding.get_default_triple()
-
+def _emit_raw_branch_merge(module: ir.Module, i64: ir.IntType) -> None:
     fn_ty = ir.FunctionType(i64, [i64])
     func = ir.Function(module, fn_ty, name="branch_merge")
     entry = func.append_basic_block(name="entry")
@@ -52,6 +87,31 @@ def build_phi_module() -> ir.Module:
     merged.add_incoming(else_value, else_block)
     builder.ret(merged)
 
+
+def _emit_pythonic_branch_merge(module: ir.Module, i64: ir.IntType) -> None:
+    fn_ty = ir.FunctionType(i64, [i64])
+    func = ir.Function(module, fn_ty, name="branch_merge_pythonic")
+    join = BranchMergeShape(func, "py_branch_merge")
+
+    condition = join.builder.icmp_signed(
+        ">=", func.args[0], ir.Constant(i64, 0), name="is_non_negative"
+    )
+    join.branch(condition)
+
+    with join.then():
+        then_value = join.builder.add(func.args[0], ir.Constant(i64, 10), name="then_value")
+        join.remember(then_value)
+
+    with join.otherwise():
+        else_value = join.builder.sub(func.args[0], ir.Constant(i64, 10), name="else_value")
+        join.remember(else_value)
+
+    merged = join.finish(i64, name="merged")
+    join.builder.ret(merged)
+
+
+def _emit_select_merge(module: ir.Module, i64: ir.IntType) -> None:
+    fn_ty = ir.FunctionType(i64, [i64])
     select_fn = ir.Function(module, fn_ty, name="select_merge")
     select_entry = select_fn.append_basic_block(name="entry")
     builder = ir.IRBuilder(select_entry)
@@ -63,6 +123,15 @@ def build_phi_module() -> ir.Module:
     selected = builder.select(select_condition, positive, negative, name="selected")
     builder.ret(selected)
 
+
+def build_module() -> ir.Module:
+    i64 = ir.IntType(64)
+    module = ir.Module(name="ssa_phi_merge")
+    module.triple = binding.get_default_triple()
+
+    _emit_raw_branch_merge(module, i64)
+    _emit_pythonic_branch_merge(module, i64)
+    _emit_select_merge(module, i64)
     return module
 
 
@@ -109,7 +178,8 @@ def compile_module(module: ir.Module) -> CompiledModule:
     return CompiledModule(
         llvm_ir=llvm_ir,
         engine=engine,
-        branch_addr=engine.get_function_address("branch_merge"),
+        raw_branch_addr=engine.get_function_address("branch_merge"),
+        pythonic_branch_addr=engine.get_function_address("branch_merge_pythonic"),
         select_addr=engine.get_function_address("select_merge"),
     )
 
@@ -130,8 +200,9 @@ def show_invalid_module_failure() -> str:
 
 def main() -> None:
     _configure_llvm()
-    compiled = compile_module(build_phi_module())
-    branch = call_i64_i64(compiled.branch_addr)
+    compiled = compile_module(build_module())
+    raw_branch = call_i64_i64(compiled.raw_branch_addr)
+    pythonic_branch = call_i64_i64(compiled.pythonic_branch_addr)
     select = call_i64_i64(compiled.select_addr)
 
     samples = [-3, 0, 4]
@@ -148,11 +219,15 @@ def main() -> None:
     print(compiled.llvm_ir.rstrip())
     print()
 
-    print("== Runtime Results ==")
+    print("== Raw vs Pythonic ==")
     for value in samples:
-        branch_result = branch(value)
+        raw_result = raw_branch(value)
+        pythonic_result = pythonic_branch(value)
         select_result = select(value)
-        print(f"input {value:>2}: branch_merge -> {branch_result:>3} | select_merge -> {select_result:>3}")
+        print(
+            f"input {value:>2}: raw_branch -> {raw_result:>3} | "
+            f"pythonic_branch -> {pythonic_result:>3} | select_merge -> {select_result:>3}"
+        )
     print()
 
     print("== Invalid Attempt ==")
@@ -161,8 +236,15 @@ def main() -> None:
     print()
 
     print("== What To Notice ==")
-    print("The branch version needs a phi at the merge block because each predecessor computes a different runtime value.")
-    print("The select version works only because both candidate values are safe to compute eagerly in straight line.")
+    print(
+        "The raw branch version is the source of truth: explicit blocks, explicit predecessors, explicit phi inputs."
+    )
+    print(
+        "The Pythonic version keeps the same CFG visible, but a tiny context-manager helper removes the branch/positioning boilerplate."
+    )
+    print(
+        "select_merge() is still only the straight-line contrast case; it works because both candidate values are safe to compute eagerly."
+    )
 
 
 if __name__ == "__main__":

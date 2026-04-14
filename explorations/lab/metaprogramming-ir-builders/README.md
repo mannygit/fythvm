@@ -9,11 +9,11 @@ the control-flow shape you actually need to understand?
 
 This lab builds the same `clamp(x, 0, 10)` behavior two ways:
 
-- a handwritten branch/phi sequence with explicit blocks
-- a helper-driven version that reuses one thin `if / else / merge` utility twice
+- a raw branch/phi sequence with explicit blocks, which is the source of truth
+- a Pythonic version that wraps the repeated wiring in a tiny context-managed helper
 
 The helper is intentionally narrow. It removes repeated merge boilerplate, but it does
-not become a framework or a codegen DSL.
+not become a framework or a codegen DSL. The raw baseline still owns correctness.
 
 ## How to Run
 
@@ -30,20 +30,22 @@ docker compose run --rm dev uv run python explorations/lab/metaprogramming-ir-bu
 
 ## What It Shows
 
-The output prints one module containing both functions, then calls them with the same
-inputs.
+The output prints the raw baseline and the Pythonic variant side by side, then calls
+them with the same inputs.
 
-- The handwritten version makes the blocks and merge point explicit.
-- The helper-driven version removes repeated `cbranch` / `phi` boilerplate.
-- The helper-driven version also turns the clamp into nested binary decisions, so the
-  emitted IR is less immediately obvious than the handwritten shape.
+- The raw version makes every block, branch, and phi input explicit.
+- The Pythonic version removes repeated `cbranch` / `phi` boilerplate through a tiny
+  `BranchMerge` helper with `with ...` blocks for each branch.
+- Both versions keep the CFG visible enough to inspect dominance and merge behavior,
+  but the Pythonic version reads more like structured Python than block bookkeeping.
 
 That is the useful boundary: one thin helper is good when it shortens repetitive block
 plumbing, but composition starts to hide the CFG shape you may need while debugging.
 
 ## Pattern / Takeaway
 
-Bless one small helper around a repeated IR pattern, not a broad abstraction layer.
+Keep the raw IR-like version as the canonical reference, then layer on one small helper
+only when it makes the same shape easier to read.
 
 For this case, the right helper is a very small `if / else / merge` builder:
 
@@ -51,7 +53,8 @@ For this case, the right helper is a very small `if / else / merge` builder:
 - emit then / else / merge blocks
 - return the merged value
 
-That keeps codegen terse without making the builder graph disappear.
+That keeps codegen terse without making the builder graph disappear. If the helper ever
+stops exposing the merge structure, it has gone too far.
 
 ## Non-Obvious Failure Modes
 
@@ -65,6 +68,8 @@ The main trap is not syntax. It is mental model drift.
 - Python-level reuse can make two code paths look “the same” even though they now emit
   different IR layouts, which matters when you are chasing verifier issues or trying to
   understand why a branch is dominated the way it is.
+- If the helper stops naming or exposing its branch blocks, the Pythonic version stops
+  being a readable wrapper and becomes a new abstraction layer to debug.
 
 ## Apply When
 
@@ -72,7 +77,9 @@ Use this pattern when:
 
 - you are repeating the same small branch/phi idiom several times
 - the emitted CFG is still simple enough that one helper call does not obscure it
-- you want to keep exploratory code shorter without losing all visibility into the IR
+- you want to keep exploratory code shorter without losing visibility into the IR
+- you want the raw builder sequence to remain the correctness baseline while the helper
+  evolves only where it is obviously helping readability
 
 ## Avoid When
 

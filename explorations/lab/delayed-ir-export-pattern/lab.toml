@@ -1,6 +1,6 @@
 slug = "delayed-ir-export-pattern"
 title = "Delayed IR Export Pattern"
-summary = "Show a module-scoped, two-phase llvmlite export plan with explicit finalization."
+summary = "Show raw and Pythonic module-scoped llvmlite export plans with explicit finalization."
 status = "draft"
 tags = ["llvmlite", "ir", "exports", "codegen"]
 run = "uv run python explorations/lab/delayed-ir-export-pattern/run.py"

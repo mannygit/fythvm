@@ -7,7 +7,13 @@ memory in 8-byte, 4-byte, then 1-byte chunks without losing verifier safety?
 
 ## Setup
 
-This lab builds two small JIT functions:
+This lab builds two versions of the same pair of small JIT functions, then runs
+them through the same harness:
+
+- `build_module_raw()`
+- `build_module_pythonic()`
+
+Both versions emit:
 
 - `chunked_copy(dst, src, count, trace, trace_index) -> void`
 - `chunked_compare(left, right, count, trace, trace_index) -> i32`
@@ -22,6 +28,11 @@ available chunk. The same control-flow shape is used for both:
 
 Each step writes the chosen chunk size into a trace buffer so the runtime output can
 show which path was taken.
+
+The raw version is the source of truth. It stays close to explicit `IRBuilder`
+calls and block positioning. The Pythonic version uses a small helper object and a
+block-positioning context manager to remove repeated pointer arithmetic and trace
+wiring while keeping the tail-call blocks visible.
 
 ## How to Run
 
@@ -38,12 +49,13 @@ docker compose run --rm dev uv run python explorations/lab/musttail-chunked-memo
 
 ## What It Shows
 
-The output prints:
+The output prints both variants and compares them:
 
 - the generated LLVM IR for the working functions
 - the chunk plan recorded at runtime for a compare call and a copy call
 - the compare result for equal and mismatched inputs
 - a verifier error for a deliberately broken `musttail` shape
+- matching traces and results between the raw and pythonic variants
 
 That makes the recursion policy visible in both the IR and the observed behavior.
 
@@ -52,7 +64,8 @@ That makes the recursion policy visible in both the IR and the observed behavior
 Use `musttail` only when the recursive call is the final action in the block and the
 caller/callee signature is kept compatible across every recursive step. For this kind
 of memory peeler, the recursive call is not an optimization hint; it is part of the
-contract.
+contract. The raw variant should stay close to that contract, while the Pythonic
+variant can smooth the repetitive chunk mechanics without hiding the tail-call shape.
 
 ## Non-Obvious Failure Modes
 
@@ -64,6 +77,8 @@ The easy mistakes here are mental-model mistakes, not syntax mistakes:
   compatible
 - treating 8-byte and 4-byte loads as automatically safe on any pointer without
   thinking about alignment
+- making the helper layer so clever that the recursive tail call stops looking like a
+  tail call in the source
 
 The lab includes a broken-shape verifier failure so this constraint stays explicit.
 

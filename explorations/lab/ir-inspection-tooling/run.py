@@ -22,6 +22,14 @@ class IRSnapshot:
     key_lines: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class InspectionRun:
+    label: str
+    baseline: IRSnapshot
+    variant: IRSnapshot
+    diff: str
+
+
 def build_module(bias_seed: int) -> ir.Module:
     """Build one tiny module whose only textual difference is the bias seed."""
     module = ir.Module(name="ir_inspection_tooling")
@@ -61,6 +69,25 @@ def capture_snapshot(label: str, note: str, bias_seed: int) -> IRSnapshot:
         raw_ir=raw_ir,
         line_count=len(raw_ir.splitlines()),
         key_lines=key_lines,
+    )
+
+
+def run_raw_inspection(baseline_bias: int, variant_bias: int) -> InspectionRun:
+    baseline = capture_snapshot(
+        "baseline",
+        "snapshot the module before any later edits or normalization",
+        bias_seed=baseline_bias,
+    )
+    variant = capture_snapshot(
+        "variant",
+        "same shape, but with a different global initializer",
+        bias_seed=variant_bias,
+    )
+    return InspectionRun(
+        label="raw",
+        baseline=baseline,
+        variant=variant,
+        diff=diff_snapshots(baseline, variant),
     )
 
 
@@ -106,42 +133,89 @@ def diff_snapshots(base: IRSnapshot, variant: IRSnapshot) -> str:
     return "\n".join(diff_lines)
 
 
+class IRInspectionSession:
+    """Bundle capture and rendering while leaving the raw LLVM text visible."""
+
+    def __init__(self, baseline_bias: int, variant_bias: int):
+        self.baseline_bias = baseline_bias
+        self.variant_bias = variant_bias
+
+    def capture(self, label: str, note: str, bias_seed: int) -> IRSnapshot:
+        return capture_snapshot(label, note, bias_seed)
+
+    def run(self) -> InspectionRun:
+        baseline = self.capture(
+            "baseline",
+            "snapshot the module before any later edits or normalization",
+            self.baseline_bias,
+        )
+        variant = self.capture(
+            "variant",
+            "same shape, but with a different global initializer",
+            self.variant_bias,
+        )
+        return InspectionRun(
+            label="pythonic",
+            baseline=baseline,
+            variant=variant,
+            diff=diff_snapshots(baseline, variant),
+        )
+
+    def render(self, run: InspectionRun) -> None:
+        print("Pattern 1: Capture Early")
+        print(
+            "Take the raw string from str(module) while the variant still has the exact shape "
+            "you want to study, then keep that snapshot around."
+        )
+        print()
+        print_snapshot(run.baseline)
+        print()
+        print_snapshot(run.variant)
+        print()
+        print("Pattern 2: Diff the Raw Text")
+        print("Use a thin diff helper on the captured strings instead of diffing summaries.")
+        print()
+        print(run.diff or "(no textual diff)")
+        print()
+        print("Non-Obvious Failure Mode:")
+        print(
+            "If you wait until after later edits, you lose the earlier IR shape. If you "
+            "normalize or summarize too aggressively, a real difference like a global "
+            "initializer change can disappear."
+        )
+        print()
+
+
 def main() -> None:
-    baseline = capture_snapshot(
-        "baseline",
-        "snapshot the module before any later edits or normalization",
-        bias_seed=0,
-    )
-    variant = capture_snapshot(
-        "variant",
-        "same shape, but with a different global initializer",
-        bias_seed=7,
-    )
+    raw_run = run_raw_inspection(0, 7)
+    pythonic_session = IRInspectionSession(0, 7)
+    pythonic_run = pythonic_session.run()
 
     print("== Question ==")
     print("How do you inspect and compare llvmlite IR without hiding the emitted LLVM?")
     print()
-    print("== Pattern 1: Capture Early ==")
+    print("== Raw Variant ==")
     print(
-        "Take the raw string from str(module) while the variant still has the exact shape "
-        "you want to study, then keep that snapshot around."
+        "The raw version keeps the snapshot, line-numbering, and diff plumbing explicit so the LLVM text stays front and center."
     )
     print()
-    print_snapshot(baseline)
+    print_snapshot(raw_run.baseline)
     print()
-    print_snapshot(variant)
+    print_snapshot(raw_run.variant)
     print()
-    print("== Pattern 2: Diff the Raw Text ==")
-    print("Use a thin diff helper on the captured strings instead of diffing summaries.")
+    print("Raw diff:")
+    print(raw_run.diff or "(no textual diff)")
     print()
-    print(diff_snapshots(baseline, variant) or "(no textual diff)")
-    print()
-    print("== Non-Obvious Failure Mode ==")
+    print("== Pythonic Variant ==")
     print(
-        "If you wait until after later edits, you lose the earlier IR shape. If you "
-        "normalize or summarize too aggressively, a real difference like a global "
-        "initializer change can disappear."
+        "The helper-object version groups repeated capture and comparison steps without turning the IR into a different representation."
     )
+    print()
+    pythonic_session.render(pythonic_run)
+    print("== Comparison ==")
+    print(f"same baseline line count: {raw_run.baseline.line_count == pythonic_run.baseline.line_count}")
+    print(f"same variant line count: {raw_run.variant.line_count == pythonic_run.variant.line_count}")
+    print(f"same diff text: {raw_run.diff == pythonic_run.diff}")
     print()
     print("== Takeaway ==")
     print(

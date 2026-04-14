@@ -8,14 +8,14 @@ When should a loop's final phi carry the semantic result of a search instead of 
 
 This lab builds two llvmlite search functions over a small `i64[]` array:
 
-- `find_first_ge_phi`, which uses one exit block and a final `phi` to carry either the
-  matching value or `-1`
-- `find_first_ge_multi_return`, which computes the same behavior but forks to separate
-  return blocks
+- `find_first_ge_raw`, the raw source-of-truth version that computes the same behavior
+  but forks to separate return blocks
+- `find_first_ge_pythonic`, which uses a tiny local helper to centralize the result
+  phi and keep the loop / found / not_found blocks easy to read
 
-Both functions scan until they find the first value greater than or equal to a threshold.
-The `phi` version keeps the result contract centralized in one place. The multi-return
-version is still valid LLVM IR, but it spreads the same contract across several exits.
+Both versions scan until they find the first value greater than or equal to a threshold.
+The raw version keeps the control flow explicit. The Pythonic version keeps the same
+CFG visible but makes the result contract easier to read.
 
 ## How to Run
 
@@ -38,11 +38,14 @@ The output prints:
 - sample runtime results for matching and non-matching inputs
 - the sentinel contract that makes `-1` mean "not found"
 
-The important part is not just that both functions work. The `phi` version makes the
-meaning of the search result explicit at the join point: one value comes out of the
-search, and that value is either the found payload or the sentinel. That keeps the
-semantic result in one SSA location instead of forcing callers to reconstruct it from
-multiple return sites.
+The important part is not just that both functions work. The raw version keeps the
+search contract explicit through separate returns. The Pythonic version makes the
+meaning of the result explicit at one join point: one value comes out of the search,
+and that value is either the found payload or the sentinel.
+
+The helper does not hide the CFG. It only centralizes the exit phi and the repeated
+branch-to-exit bookkeeping, while the loop cursor phi and the `found` / `not_found`
+blocks remain visible in the IR.
 
 ## Pattern / Takeaway
 
@@ -52,6 +55,10 @@ even if several control-flow paths can produce it.
 This is cleaner than branching to separate returns because the exit block becomes the
 single place where the semantic contract is defined. The IR says, in one location, what
 the search means when it succeeds and what it means when it fails.
+
+If the raw version is the clearest reference shape, keep it in the lab and let the
+Pythonic version evolve around it. The raw version stays the truth table for the CFG;
+the Pythonic version earns its keep by making the same structure easier to read.
 
 ## Non-Obvious Failure Modes
 
@@ -68,6 +75,9 @@ join.
 It is also easy to conflate the loop cursor phi with the result phi. They solve
 different problems. One tracks where the loop is scanning; the other carries what the
 search found. Reusing a single Python variable name for both hides that distinction.
+
+Another mistake is to let the helper become the abstraction instead of the CFG. The
+helper should reduce boilerplate, not obscure which block feeds the result phi.
 
 ## Apply When
 

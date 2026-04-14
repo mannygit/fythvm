@@ -42,6 +42,15 @@ Read these repo files before making changes:
    - which non-obvious failure modes or misunderstandings were discovered
 8. Validate the lab by running the focused lab command and the repo tests.
 
+When updating a builder-heavy existing lab, prefer a dual-style format:
+
+- keep a raw IR-like version as the source of truth
+- add a Pythonic companion version in the same lab when it genuinely improves readability
+
+The Pythonic version should stay explainable against the raw baseline. Use context
+managers and small helper objects first. Do not default to decorators, descriptors,
+or broader "magic" layers unless the lab specifically proves that they help.
+
 ## Lab Requirements
 
 Each lab `README.md` must include these headings:

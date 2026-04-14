@@ -1,6 +1,6 @@
 slug = "loop-carried-traversal-phis"
 title = "Loop Carried Traversal Phis"
-summary = "Show how a linked-list traversal carries both a cursor phi and a derived count phi."
+summary = "Show raw and Pythonic linked-list traversal styles that carry both a cursor phi and a derived count phi."
 status = "stable"
 tags = ["llvmlite", "ssa", "phi", "loops", "linked-list", "ir"]
 run = "uv run python explorations/lab/loop-carried-traversal-phis/run.py"

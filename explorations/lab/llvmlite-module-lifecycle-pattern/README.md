@@ -8,7 +8,13 @@ on macOS where that ctor/dtor path is the unsafe one for llvmlite MCJIT?
 
 ## Setup
 
-This lab builds a small JIT module that exports ordinary lifecycle functions:
+This lab builds two versions of the same small JIT module, then runs them through
+the same host lifecycle harness:
+
+- `build_lifecycle_module_raw()`
+- `build_lifecycle_module_pythonic()`
+
+Both export the same ordinary lifecycle functions:
 
 - `module_init(ctx)`
 - `module_fini(ctx)`
@@ -18,6 +24,11 @@ This lab builds a small JIT module that exports ordinary lifecycle functions:
 The host owns a lifecycle registry in Python. It loads the module with
 `add_module()`, finalizes it, resolves lifecycle callbacks with
 `get_function_address()`, and unloads it with `remove_module()`.
+
+The raw version is the source of truth. It keeps the `IRBuilder` steps explicit and
+close to 1:1 LLVM control flow. The Pythonic version uses a small slot helper and a
+block-positioning context manager to make the repeated pointer work easier to read
+without hiding the lifecycle order or the blocks themselves.
 
 The runtime context is passed in as an opaque pointer shape (`i8*` in the emitted
 IR, standing in for a conceptual `void*`). The lab uses a simple host-owned context
@@ -43,7 +54,7 @@ docker compose run --rm dev uv run python explorations/lab/llvmlite-module-lifec
 
 ## What It Shows
 
-The run output demonstrates:
+The run output demonstrates both variants side by side:
 
 - the current target triple, so the platform under test is visible in the output
 - the generated IR omits `llvm.global_ctors` and `llvm.global_dtors`
@@ -54,6 +65,9 @@ The run output demonstrates:
   callbacks and before `remove_module()`
 - a reloaded module receives a new generation even when the symbol names are the same
 - the host rejects stale generation requests instead of calling an old callback path
+- the raw and pythonic variants produce the same lifecycle effects and the same
+  visible ordering, even though the pythonic version gets there with smaller helper
+  objects
 
 This is a runnable reference implementation of the simplest viable lifecycle pattern:
 host-owned registry, explicit init/fini, host-owned runtime context, and generation
@@ -67,7 +81,9 @@ host where the implicit ctor/dtor path is the one under suspicion.
 ## Pattern / Takeaway
 
 For llvmlite MCJIT modules with non-trivial setup or teardown, treat lifecycle as an
-explicit host-driven protocol:
+explicit host-driven protocol. Keep the raw builder version as the reference shape,
+then layer small Python helpers on top when they improve readability without hiding
+the actual block order:
 
 1. build a normal module with exported lifecycle functions
 2. load it with `add_module()` and `finalize_object()`
@@ -104,6 +120,10 @@ It is also easy to treat a Linux-only or Docker-only run as sufficient evidence 
 this design. That misses part of the point. The pattern exists partly because of
 platform-specific behavior on macOS, so native Mach-O execution is materially better
 evidence than a containerized Linux run.
+
+The Pythonic variant should not hide lifecycle ordering. If the helper layer starts to
+obscure when a slot is incremented or when `remove_module()` happens, the abstraction
+has gone too far and the raw version should be the one you trust.
 
 This lab also inherits the engine-lifetime rule from the minimal JIT pipeline lab:
 keep the execution engine alive while any derived callback address is still in use.

@@ -3,12 +3,19 @@
 ## Question
 
 What is the smallest useful JITed stack pattern worth preserving from the older
-`~/fyth` runtime experiments?
+`~/fyth` runtime experiments, and what does a Pythonic wrapper improve without hiding
+the stack layout?
 
 ## Setup
 
 This lab is a clean-room reinterpretation of the downward-growing stack pattern from
 `~/fyth`'s `stack.py` and `test_stack.py`.
+
+It now has two implementations:
+
+- a raw version that keeps the stack globals and slot arithmetic explicit
+- a Pythonic version that uses a small local `StackLayout` helper to reduce repeated
+  load/store/GEP boilerplate while keeping the memory layout visible
 
 The JIT module owns:
 
@@ -19,6 +26,10 @@ The JIT module owns:
 
 The host reads both the stack pointer and the backing array through global addresses so
 the memory model stays visible alongside the logical stack view.
+
+The raw version is the source of truth. The Pythonic version is only a readability
+layer; it should still be obvious how the physical stack is laid out and how each
+operation mutates it.
 
 ## How to Run
 
@@ -37,9 +48,9 @@ docker compose run --rm dev uv run python explorations/lab/llvmlite-jit-stack-op
 
 The output shows:
 
-- the generated IR for the stack globals and operations
-- the stack pointer value after each operation
-- the logical stack contents derived from the backing array
+- the generated IR for the raw and Pythonic stack globals and operations
+- the stack pointer value after each operation for both variants
+- the logical stack contents derived from the backing array for both variants
 
 That makes the runtime discipline visible instead of hiding it behind a convenience API.
 
@@ -54,6 +65,10 @@ at the same time:
 That combination makes operations like `dup`, `swap`, and `over` much easier to reason
 about than a purely abstract stack interface.
 
+The Pythonic layer is useful when the helper only removes repeated slot arithmetic and
+sp-pointer bookkeeping. Once the helper starts obscuring the array layout, it has gone
+too far.
+
 ## Non-Obvious Failure Modes
 
 A downward-growing stack is easy to misunderstand from host-side memory reads. The
@@ -67,6 +82,10 @@ Another subtle issue is shared mutable state: these exported JIT functions mutat
 global storage across calls. If a scenario needs a clean baseline, the host must reset
 the stack explicitly rather than assuming each call is isolated.
 
+The other failure mode is over-helpful abstraction. If the helper hides where the
+stack pointer lives or how `slot_ptr` addresses are formed, it stops being a readable
+wrapper and becomes a second runtime model.
+
 ## Apply When
 
 Use this pattern when:
@@ -74,6 +93,8 @@ Use this pattern when:
 - you want a small JITed runtime structure with explicit stack semantics
 - you need to reason about classic stack operations at the IR level
 - you want to preserve both memory layout and logical behavior in one demo
+- you want a thin helper that makes repeated stack pointer and slot logic easier to
+  read without making the runtime opaque
 
 ## Avoid When
 
@@ -83,8 +104,12 @@ implementation with bounds checks, error handling, or multiple stack segments.
 Avoid abstracting away the array and stack-pointer details if the point of the work is
 to reason about the underlying runtime behavior.
 
+Do not let the Pythonic version become the only version. The raw version is what keeps
+the model honest.
+
 ## Next Questions
 
 - Which safety checks are worth adding without obscuring the underlying stack shape?
 - How should return-stack or mixed-stack patterns be modeled cleanly?
 - When does a stack abstraction become too indirect to remain useful for exploration?
+- Which tiny stack helpers are worth reusing in other labs?

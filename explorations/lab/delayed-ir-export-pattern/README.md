@@ -7,9 +7,15 @@ global registry?
 
 ## Setup
 
-This lab builds a small module-scoped export plan. Phase 1 declares the exported
-symbols and signatures. Phase 2 fills in the function bodies later, even if a body
-needs to call another export whose definition has not been emitted yet.
+This lab builds a small module-scoped export plan two ways:
+
+- a raw plain-state version that spells out declarations, definitions, and finalization
+- a Pythonic version that wraps body staging in a context manager on a plan object
+
+Phase 1 declares the exported symbols and signatures. Phase 2 fills in the function
+bodies later, even if a body needs to call another export whose definition has not been
+emitted yet. The raw version is the source of truth; the Pythonic version is the
+readability layer.
 
 The host owns the plan object, not a process-wide registry. Finalization is explicit:
 the host verifies the module, creates the execution engine, resolves function
@@ -30,7 +36,8 @@ docker compose run --rm dev uv run python explorations/lab/delayed-ir-export-pat
 
 ## What It Shows
 
-The output walks through the two-phase workflow:
+The output walks through the two-phase workflow twice, once for the raw plan and once
+for the Pythonic plan:
 
 - declaration order for the module exports
 - definition order, including a body emitted before its callee body
@@ -38,8 +45,11 @@ The output walks through the two-phase workflow:
 - runtime calls that only become possible after explicit finalization
 - error messages for duplicate names, calling before finalization, and finalizing
   with a missing body
+- the same export graph in a raw form and in a small plan object with a body-staging
+  context manager
 
-That makes the ordering rules visible instead of implicit.
+That makes the ordering rules visible instead of implicit. The Pythonic version keeps
+the call graph and phase ordering visible while removing some of the manual book-keeping.
 
 ## Pattern / Takeaway
 
@@ -48,7 +58,8 @@ symbol and signature first, define bodies later, and make finalization the one e
 step that turns IR into something callable.
 
 This keeps dependency order local to the module and avoids ambient registries or hidden
-startup side effects.
+startup side effects. The raw version should remain the correctness reference even if
+the plan object grows more magical later.
 
 ## Non-Obvious Failure Modes
 
@@ -60,6 +71,8 @@ startup side effects.
   declared.
 - Ambient registries make the dependency graph feel easier at first, but they hide where
   exported symbols come from and make module-local ordering harder to reason about.
+- The Pythonic `define()` context manager must only mark the export defined after a clean
+  exit; if it records the body too early, failures become misleading.
 
 ## Apply When
 
@@ -69,6 +82,7 @@ Use this pattern when:
 - you need to assemble bodies in stages instead of all at once
 - you want export availability to be explicit and testable
 - the host should control when IR becomes callable
+- you want the raw state transitions as a baseline and a plan object as a readable layer
 
 ## Avoid When
 

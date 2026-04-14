@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
+from contextlib import contextmanager
+from typing import Callable
 
 from llvmlite import binding, ir
 
@@ -81,6 +83,12 @@ class StaleGenerationError(LifecycleError):
     """Raised when a caller uses an old generation token."""
 
 
+@contextmanager
+def positioned_at(builder: ir.IRBuilder, block: ir.Block):
+    builder.position_at_end(block)
+    yield builder
+
+
 def ensure_llvm_initialized() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
@@ -107,7 +115,19 @@ def write_slot(builder: ir.IRBuilder, ctx_arg: ir.Argument, index: int, value: i
     builder.store(ir.Constant(I64, value), context_slot_ptr(builder, ctx_arg, index))
 
 
-def build_lifecycle_module(module_id: str, generation: int) -> ir.Module:
+@dataclass
+class LifecycleSlots:
+    builder: ir.IRBuilder
+    ctx_arg: ir.Argument
+
+    def increment(self, index: int, delta: int) -> None:
+        increment_slot(self.builder, self.ctx_arg, index, delta)
+
+    def write(self, index: int, value: int) -> None:
+        write_slot(self.builder, self.ctx_arg, index, value)
+
+
+def build_lifecycle_module_raw(module_id: str, generation: int) -> ir.Module:
     """Build a module that uses explicit lifecycle callbacks instead of global ctors."""
     module = ir.Module(name=f"{module_id}_gen_{generation}")
     module.triple = binding.get_default_triple()
@@ -171,10 +191,72 @@ def build_lifecycle_module(module_id: str, generation: int) -> ir.Module:
     return module
 
 
+def build_lifecycle_module_pythonic(module_id: str, generation: int) -> ir.Module:
+    """Build the same lifecycle module with helper objects and block context managers."""
+    module = ir.Module(name=f"{module_id}_gen_{generation}")
+    module.triple = binding.get_default_triple()
+
+    is_initialized = ir.GlobalVariable(module, I1, name="module_initialized")
+    is_initialized.initializer = ir.Constant(I1, 0)
+
+    init_fn = ir.Function(module, ir.FunctionType(I32, [I8.as_pointer()]), name="module_init")
+    entry = init_fn.append_basic_block(name="entry")
+    already = init_fn.append_basic_block(name="already_initialized")
+    do_init = init_fn.append_basic_block(name="do_init")
+    init_slots = LifecycleSlots(ir.IRBuilder(entry), init_fn.args[0])
+    init_builder = init_slots.builder
+    with positioned_at(init_builder, entry):
+        initialized = init_builder.load(is_initialized, name="initialized")
+        init_builder.cbranch(initialized, already, do_init)
+    with positioned_at(init_builder, already):
+        init_builder.ret(ir.Constant(I32, 0))
+    with positioned_at(init_builder, do_init):
+        init_slots.increment(0, 1)
+        init_slots.increment(1, 1)
+        init_slots.write(3, generation)
+        init_builder.store(ir.Constant(I1, 1), is_initialized)
+        init_builder.ret(ir.Constant(I32, 0))
+
+    fini_fn = ir.Function(module, ir.FunctionType(I32, [I8.as_pointer()]), name="module_fini")
+    entry = fini_fn.append_basic_block(name="entry")
+    already = fini_fn.append_basic_block(name="already_finalized")
+    do_fini = fini_fn.append_basic_block(name="do_fini")
+    fini_slots = LifecycleSlots(ir.IRBuilder(entry), fini_fn.args[0])
+    fini_builder = fini_slots.builder
+    with positioned_at(fini_builder, entry):
+        initialized = fini_builder.load(is_initialized, name="initialized")
+        fini_builder.cbranch(initialized, do_fini, already)
+    with positioned_at(fini_builder, already):
+        fini_builder.ret(ir.Constant(I32, 0))
+    with positioned_at(fini_builder, do_fini):
+        fini_slots.increment(0, -1)
+        fini_slots.increment(2, 1)
+        fini_slots.write(3, generation)
+        fini_builder.store(ir.Constant(I1, 0), is_initialized)
+        fini_builder.ret(ir.Constant(I32, 0))
+
+    state_fn = ir.Function(module, ir.FunctionType(I32, []), name="module_is_initialized")
+    block = state_fn.append_basic_block(name="entry")
+    state_builder = ir.IRBuilder(block)
+    state = state_builder.load(is_initialized, name="state")
+    state_builder.ret(state_builder.zext(state, I32))
+
+    generation_fn = ir.Function(
+        module,
+        ir.FunctionType(I64, []),
+        name="module_generation_marker",
+    )
+    block = generation_fn.append_basic_block(name="entry")
+    generation_builder = ir.IRBuilder(block)
+    generation_builder.ret(ir.Constant(I64, generation))
+
+    return module
+
+
 class LifecycleRegistry:
     """Own the live module registry and callback validity rules."""
 
-    def __init__(self) -> None:
+    def __init__(self, module_builder: Callable[[str, int], ir.Module]) -> None:
         ensure_llvm_initialized()
         backing_module = binding.parse_assembly("")
         target = binding.Target.from_default_triple()
@@ -182,6 +264,7 @@ class LifecycleRegistry:
         self.engine = binding.create_mcjit_compiler(backing_module, target_machine)
         self.modules: dict[str, ModuleRecord] = {}
         self.next_generation = 1
+        self.module_builder = module_builder
 
     def load_module(self, module_id: str) -> ModuleRecord:
         if module_id in self.modules:
@@ -190,7 +273,7 @@ class LifecycleRegistry:
         generation = self.next_generation
         self.next_generation += 1
 
-        module = build_lifecycle_module(module_id, generation)
+        module = self.module_builder(module_id, generation)
         llvm_ir = str(module)
         module_ref = binding.parse_assembly(llvm_ir)
         module_ref.verify()
@@ -285,6 +368,98 @@ class LifecycleRegistry:
         return record
 
 
+@dataclass
+class VariantRun:
+    label: str
+    raw_ir: str
+    first_init_snapshot: RuntimeSnapshot
+    post_unload_snapshot: RuntimeSnapshot
+    reload_snapshot: RuntimeSnapshot
+    unload_events: list[str]
+    reload_unload_events: list[str]
+
+
+def run_variant(label: str, module_builder: Callable[[str, int], ir.Module]) -> VariantRun:
+    runtime_ctx = RuntimeContext()
+    registry = LifecycleRegistry(module_builder)
+    module_id = "demo_lifecycle_module"
+
+    print(f"== {label.title()} Variant ==")
+    record_v1 = registry.load_module(module_id)
+    assert record_v1.callbacks is not None
+    print("-- Generated IR (generation 1) --")
+    print(record_v1.llvm_ir.rstrip())
+    print()
+    print("contains llvm.global_ctors:", "@llvm.global_ctors" in record_v1.llvm_ir)
+    print("contains llvm.global_dtors:", "@llvm.global_dtors" in record_v1.llvm_ir)
+    print()
+
+    print("-- Load / Init / Idempotence --")
+    print(f"loaded {module_id!r} generation {record_v1.generation}")
+    print("generation marker:", record_v1.callbacks.generation_marker())
+    print("runtime before init:", format_snapshot(runtime_ctx.snapshot()))
+    print("module_is_initialized before init:", record_v1.callbacks.is_initialized())
+
+    rc = registry.init_module(module_id, record_v1.generation, runtime_ctx)
+    print("module_init rc:", rc)
+    first_init_snapshot = runtime_ctx.snapshot()
+    print("runtime after first init:", format_snapshot(first_init_snapshot))
+    print("module_is_initialized after first init:", record_v1.callbacks.is_initialized())
+
+    rc = registry.init_module(module_id, record_v1.generation, runtime_ctx)
+    print("second module_init rc:", rc)
+    print("runtime after second init:", format_snapshot(runtime_ctx.snapshot()))
+    print()
+
+    print("-- Unload Ordering --")
+    unload_events = registry.unload_module(module_id, record_v1.generation, runtime_ctx)
+    for event in unload_events:
+        print(event)
+    post_unload_snapshot = runtime_ctx.snapshot()
+    print("runtime after unload:", format_snapshot(post_unload_snapshot))
+    print()
+
+    print("-- Reload / Generation Safety --")
+    record_v2 = registry.load_module(module_id)
+    assert record_v2.callbacks is not None
+    print(f"reloaded {module_id!r} generation {record_v2.generation}")
+    print("resolved marker via same symbol names:", record_v2.callbacks.generation_marker())
+
+    try:
+        registry.init_module(module_id, record_v1.generation, runtime_ctx)
+    except StaleGenerationError as exc:
+        print("stale generation rejected:", exc)
+
+    rc = registry.init_module(module_id, record_v2.generation, runtime_ctx)
+    print("generation 2 module_init rc:", rc)
+    reload_snapshot = runtime_ctx.snapshot()
+    print("runtime after generation 2 init:", format_snapshot(reload_snapshot))
+
+    rc = record_v2.callbacks.fini(runtime_ctx.as_void_p())
+    print("manual module_fini rc:", rc)
+    print("runtime after first fini:", format_snapshot(runtime_ctx.snapshot()))
+
+    rc = record_v2.callbacks.fini(runtime_ctx.as_void_p())
+    print("second module_fini rc:", rc)
+    print("runtime after second fini:", format_snapshot(runtime_ctx.snapshot()))
+    reload_unload_events = registry.unload_module(module_id, record_v2.generation, runtime_ctx)
+    print("generation 2 unload after repeated fini requests:")
+    for event in reload_unload_events:
+        print(event)
+    print("runtime after final unload:", format_snapshot(runtime_ctx.snapshot()))
+    print()
+
+    return VariantRun(
+        label=label,
+        raw_ir=record_v1.llvm_ir,
+        first_init_snapshot=first_init_snapshot,
+        post_unload_snapshot=post_unload_snapshot,
+        reload_snapshot=reload_snapshot,
+        unload_events=unload_events,
+        reload_unload_events=reload_unload_events,
+    )
+
+
 def format_snapshot(snapshot: RuntimeSnapshot) -> str:
     values = {
         name: getattr(snapshot, name)
@@ -294,9 +469,6 @@ def format_snapshot(snapshot: RuntimeSnapshot) -> str:
 
 
 def main() -> None:
-    runtime_ctx = RuntimeContext()
-    registry = LifecycleRegistry()
-    module_id = "demo_lifecycle_module"
     host_triple = binding.get_default_triple()
 
     print("== Question ==")
@@ -315,80 +487,32 @@ def main() -> None:
     )
     print()
 
-    record_v1 = registry.load_module(module_id)
-    assert record_v1.callbacks is not None
+    raw_run = run_variant("raw", build_lifecycle_module_raw)
+    py_run = run_variant("pythonic", build_lifecycle_module_pythonic)
 
-    print("== Generated IR (generation 1) ==")
-    print(record_v1.llvm_ir.rstrip())
-    print()
-    print("contains llvm.global_ctors:", "@llvm.global_ctors" in record_v1.llvm_ir)
-    print("contains llvm.global_dtors:", "@llvm.global_dtors" in record_v1.llvm_ir)
-    print()
-
-    print("== Load / Init / Idempotence ==")
-    print(f"loaded {module_id!r} generation {record_v1.generation}")
+    print("== Comparison ==")
+    print("raw and pythonic init snapshots match:", raw_run.first_init_snapshot == py_run.first_init_snapshot)
+    print("raw and pythonic post-unload snapshots match:", raw_run.post_unload_snapshot == py_run.post_unload_snapshot)
+    print("raw and pythonic reload snapshots match:", raw_run.reload_snapshot == py_run.reload_snapshot)
+    print("raw and pythonic unload event sequences match:", raw_run.unload_events == py_run.unload_events)
     print(
-        "resolved marker via exported symbol:",
-        record_v1.callbacks.generation_marker(),
+        "raw and pythonic reload-unload sequences match:",
+        raw_run.reload_unload_events == py_run.reload_unload_events,
     )
-    print("runtime before init:", format_snapshot(runtime_ctx.snapshot()))
-    print("module_is_initialized before init:", record_v1.callbacks.is_initialized())
-
-    rc = registry.init_module(module_id, record_v1.generation, runtime_ctx)
-    print("module_init rc:", rc)
-    print("runtime after first init:", format_snapshot(runtime_ctx.snapshot()))
-    print("module_is_initialized after first init:", record_v1.callbacks.is_initialized())
-
-    rc = registry.init_module(module_id, record_v1.generation, runtime_ctx)
-    print("second module_init rc:", rc)
-    print("runtime after second init:", format_snapshot(runtime_ctx.snapshot()))
-    print()
-
-    print("== Unload Ordering ==")
-    unload_events = registry.unload_module(module_id, record_v1.generation, runtime_ctx)
-    for event in unload_events:
-        print(event)
-    print("runtime after unload:", format_snapshot(runtime_ctx.snapshot()))
-    print()
-
-    print("== Reload / Generation Safety ==")
-    record_v2 = registry.load_module(module_id)
-    assert record_v2.callbacks is not None
-    print(f"reloaded {module_id!r} generation {record_v2.generation}")
     print(
-        "resolved marker via same symbol names:",
-        record_v2.callbacks.generation_marker(),
+        "both variants avoid implicit ctor/dtor machinery:",
+        "@llvm.global_ctors" not in raw_run.raw_ir
+        and "@llvm.global_dtors" not in raw_run.raw_ir
+        and "@llvm.global_ctors" not in py_run.raw_ir
+        and "@llvm.global_dtors" not in py_run.raw_ir,
     )
-
-    try:
-        registry.init_module(module_id, record_v1.generation, runtime_ctx)
-    except StaleGenerationError as exc:
-        print("stale generation rejected:", exc)
-
-    rc = registry.init_module(module_id, record_v2.generation, runtime_ctx)
-    print("generation 2 module_init rc:", rc)
-    print("runtime after generation 2 init:", format_snapshot(runtime_ctx.snapshot()))
-
-    rc = record_v2.callbacks.fini(runtime_ctx.as_void_p())
-    print("manual module_fini rc:", rc)
-    print("runtime after first fini:", format_snapshot(runtime_ctx.snapshot()))
-
-    rc = record_v2.callbacks.fini(runtime_ctx.as_void_p())
-    print("second module_fini rc:", rc)
-    print("runtime after second fini:", format_snapshot(runtime_ctx.snapshot()))
-    unload_events = registry.unload_module(module_id, record_v2.generation, runtime_ctx)
-    print("generation 2 unload after repeated fini requests:")
-    for event in unload_events:
-        print(event)
-    print("runtime after final unload:", format_snapshot(runtime_ctx.snapshot()))
-    print()
 
     print("== Takeaway ==")
     print(
         "Treat module lifecycle as a host-owned protocol: explicit init/fini, "
-        "generation tracking, and finalization before remove_module(). Native "
-        "Mach-O execution makes this more than an abstract design preference: it "
-        "shows the replacement pattern working on the platform that motivated it."
+        "generation tracking, and finalization before remove_module(). The raw "
+        "version is the source of truth, while the Pythonic version uses small "
+        "helpers to improve readability without hiding lifecycle ordering."
     )
 
 

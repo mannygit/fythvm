@@ -1,56 +1,46 @@
-"""Explore a thin metaprogramming helper for llvmlite IR builders."""
+"""Explore raw versus Pythonic llvmlite IR builder styles."""
 
 from __future__ import annotations
 
 import ctypes
+from contextlib import contextmanager
+from dataclasses import dataclass
 
 from llvmlite import binding, ir
 
 
 I64 = ir.IntType(64)
+CALLABLE_I64_TO_I64 = ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_int64)
 
 
-def emit_if_else_value(
-    builder: ir.IRBuilder,
-    condition: ir.Value,
-    then_value: ir.Value,
-    else_value: ir.Value,
-    *,
-    name: str,
-) -> ir.Instruction:
-    """Emit a small if/else merge and return the merged value.
-
-    This is intentionally thin: it removes repeated branch/phi boilerplate, but it
-    does not try to hide the CFG behind a larger framework.
-    """
-
-    function = builder.function
-    then_block = function.append_basic_block(f"{name}.then")
-    else_block = function.append_basic_block(f"{name}.else")
-    merge_block = function.append_basic_block(f"{name}.merge")
-
-    builder.cbranch(condition, then_block, else_block)
-
-    builder.position_at_end(then_block)
-    builder.branch(merge_block)
-    then_end = builder.block
-
-    builder.position_at_end(else_block)
-    builder.branch(merge_block)
-    else_end = builder.block
-
-    builder.position_at_end(merge_block)
-    phi = builder.phi(then_value.type, name=name)
-    phi.add_incoming(then_value, then_end)
-    phi.add_incoming(else_value, else_end)
-    return phi
+def configure_llvm() -> None:
+    binding.initialize_native_target()
+    binding.initialize_native_asmprinter()
 
 
-def build_manual_clamp_function(module: ir.Module) -> ir.Function:
-    """Build a direct branch/phi version of clamp(x, 0, 10)."""
+def compile_module(module: ir.Module, function_name: str) -> tuple[str, binding.ExecutionEngine, CALLABLE_I64_TO_I64]:
+    """Verify a module and return the IR, live engine, and callable function pointer."""
+
+    llvm_ir = str(module)
+    parsed = binding.parse_assembly(llvm_ir)
+    parsed.verify()
+
+    target = binding.Target.from_default_triple()
+    target_machine = target.create_target_machine()
+    engine = binding.create_mcjit_compiler(parsed, target_machine)
+    engine.finalize_object()
+    address = engine.get_function_address(function_name)
+    return llvm_ir, engine, CALLABLE_I64_TO_I64(address)
+
+
+def build_raw_clamp_module() -> ir.Module:
+    """Build a clamp function with explicit blocks and phi nodes."""
+
+    module = ir.Module(name="metaprogramming_ir_builders_raw")
+    module.triple = binding.get_default_triple()
 
     fn_ty = ir.FunctionType(I64, [I64])
-    fn = ir.Function(module, fn_ty, name="manual_clamp_0_10")
+    fn = ir.Function(module, fn_ty, name="clamp_0_10")
     x = fn.args[0]
     x.name = "x"
 
@@ -87,99 +77,136 @@ def build_manual_clamp_function(module: ir.Module) -> ir.Function:
     clamped.add_incoming(ir.Constant(I64, 10), high_end)
     clamped.add_incoming(x, in_range_end)
     builder.ret(clamped)
-    return fn
+    return module
 
 
-def build_helper_clamp_function(module: ir.Module) -> ir.Function:
-    """Build the same clamp using a thin helper twice."""
+@dataclass
+class BranchMerge:
+    """A small helper that keeps branch/merge wiring visible but less repetitive."""
+
+    builder: ir.IRBuilder
+    condition: ir.Value
+    name: str
+
+    def __post_init__(self) -> None:
+        function = self.builder.function
+        self.then_block = function.append_basic_block(f"{self.name}.then")
+        self.otherwise_block = function.append_basic_block(f"{self.name}.otherwise")
+        self.merge_block = function.append_basic_block(f"{self.name}.merge")
+        self.builder.cbranch(self.condition, self.then_block, self.otherwise_block)
+
+    @contextmanager
+    def then(self):
+        self.builder.position_at_end(self.then_block)
+        try:
+            yield
+        finally:
+            self.builder.branch(self.merge_block)
+
+    @contextmanager
+    def otherwise(self):
+        self.builder.position_at_end(self.otherwise_block)
+        try:
+            yield
+        finally:
+            self.builder.branch(self.merge_block)
+
+    def merge(self, true_value: ir.Value, false_value: ir.Value) -> ir.Instruction:
+        self.builder.position_at_end(self.merge_block)
+        phi = self.builder.phi(true_value.type, name=self.name)
+        phi.add_incoming(true_value, self.then_block)
+        phi.add_incoming(false_value, self.otherwise_block)
+        return phi
+
+
+def build_pythonic_clamp_module() -> ir.Module:
+    """Build the same clamp with a small context-managed helper object."""
+
+    module = ir.Module(name="metaprogramming_ir_builders_pythonic")
+    module.triple = binding.get_default_triple()
 
     fn_ty = ir.FunctionType(I64, [I64])
-    fn = ir.Function(module, fn_ty, name="helper_clamp_0_10")
+    fn = ir.Function(module, fn_ty, name="clamp_0_10")
     x = fn.args[0]
     x.name = "x"
 
     entry = fn.append_basic_block("entry")
     builder = ir.IRBuilder(entry)
 
-    lower_bounded = emit_if_else_value(
+    low_choice = BranchMerge(
         builder,
         builder.icmp_signed("<", x, ir.Constant(I64, 0), name="is_negative"),
-        ir.Constant(I64, 0),
-        x,
         name="clamp_low",
     )
-    clamped = emit_if_else_value(
+    with low_choice.then():
+        low_then_value = ir.Constant(I64, 0)
+    with low_choice.otherwise():
+        low_else_value = x
+    lower_bounded = low_choice.merge(low_then_value, low_else_value)
+
+    high_choice = BranchMerge(
         builder,
         builder.icmp_signed(">", lower_bounded, ir.Constant(I64, 10), name="is_above_ten"),
-        ir.Constant(I64, 10),
-        lower_bounded,
         name="clamp_high",
     )
+    with high_choice.then():
+        high_then_value = ir.Constant(I64, 10)
+    with high_choice.otherwise():
+        high_else_value = lower_bounded
+    clamped = high_choice.merge(high_then_value, high_else_value)
+
     builder.ret(clamped)
-    return fn
-
-
-def build_module() -> ir.Module:
-    module = ir.Module(name="metaprogramming_ir_builders")
-    module.triple = binding.get_default_triple()
-    build_manual_clamp_function(module)
-    build_helper_clamp_function(module)
     return module
 
 
-def compile_module(module: ir.Module) -> tuple[str, binding.ExecutionEngine, dict[str, int]]:
-    """Verify the module and return the IR plus a live engine and function addresses."""
-
-    binding.initialize_native_target()
-    binding.initialize_native_asmprinter()
-
-    llvm_ir = str(module)
-    parsed = binding.parse_assembly(llvm_ir)
-    parsed.verify()
-
-    target = binding.Target.from_default_triple()
-    target_machine = target.create_target_machine()
-    engine = binding.create_mcjit_compiler(parsed, target_machine)
-    engine.finalize_object()
-    addresses = {
-        "manual_clamp_0_10": engine.get_function_address("manual_clamp_0_10"),
-        "helper_clamp_0_10": engine.get_function_address("helper_clamp_0_10"),
-    }
-    return llvm_ir, engine, addresses
-
-
-def as_cfunc(address: int) -> ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_int64):
-    return ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_int64)(address)
+def call_clamp(module: ir.Module) -> tuple[str, binding.ExecutionEngine, CALLABLE_I64_TO_I64]:
+    return compile_module(module, "clamp_0_10")
 
 
 def main() -> None:
-    module = build_module()
-    # Keep the engine alive for as long as any derived function pointer is used.
-    llvm_ir, _engine, addresses = compile_module(module)
+    configure_llvm()
 
-    manual = as_cfunc(addresses["manual_clamp_0_10"])
-    helper = as_cfunc(addresses["helper_clamp_0_10"])
+    raw_module = build_raw_clamp_module()
+    pythonic_module = build_pythonic_clamp_module()
+
+    raw_ir, _raw_engine, raw_clamp = call_clamp(raw_module)
+    pythonic_ir, _pythonic_engine, pythonic_clamp = call_clamp(pythonic_module)
+
     samples = [-7, 0, 5, 12]
 
     print("== Question ==")
     print("What is the smallest llvmlite helper that is useful without hiding the CFG?")
     print()
-    print("== Generated IR ==")
-    print(llvm_ir.rstrip())
-    print()
-    print("== Runtime Results ==")
-    print("manual_clamp_0_10 vs helper_clamp_0_10")
-    for value in samples:
-        manual_result = manual(value)
-        helper_result = helper(value)
-        print(f"x={value:>3}: manual={manual_result:>2} helper={helper_result:>2}")
 
+    print("== Raw Baseline ==")
+    print("source of truth: explicit block wiring and phi nodes")
+    print(raw_ir.rstrip())
     print()
+    print("results")
+    for value in samples:
+        print(f"x={value:>3}: clamp_0_10={raw_clamp(value):>2}")
+    print()
+
+    print("== Pythonic Variant ==")
+    print("readability layer: a tiny context-managed branch helper")
+    print(pythonic_ir.rstrip())
+    print()
+    print("results")
+    for value in samples:
+        print(f"x={value:>3}: clamp_0_10={pythonic_clamp(value):>2}")
+    print()
+
+    print("== Comparison ==")
+    print("Both versions clamp the same inputs, but only the raw one keeps every CFG step fully spelled out.")
+    print("The Pythonic variant stays readable because it wraps branch/merge plumbing, not because it hides the control flow.")
+    print()
+
     print("== Pattern ==")
     print("Use one thin helper for branch/phi repetition, but stop before the CFG becomes opaque.")
     print()
+
     print("== Takeaway ==")
-    print("Helper-driven codegen is good when it removes repeated merge boilerplate, not when it turns the IR shape into a guessing game.")
+    print("Keep the raw IR-like builder as the correctness reference, then let a small Pythonic layer earn its way in by making the same shape easier to read.")
 
 
 if __name__ == "__main__":

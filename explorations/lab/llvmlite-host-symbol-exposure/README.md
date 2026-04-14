@@ -8,19 +8,27 @@ JITed llvmlite code?
 ## Setup
 
 This lab is a clean-room reinterpretation of the useful part of `~/fyth`'s
-host-function exposure idea. It rebuilds the pattern without carrying over the old
-framework layer.
+host-function exposure idea. It keeps the raw IR-like version as the source of truth
+and adds a Pythonic companion that makes the host-side lifetime rules easier to read.
 
-The host:
+The raw path:
 
 - defines a Python callback with `ctypes.CFUNCTYPE`
 - registers it with `llvm.add_symbol`
 - keeps the callback object alive explicitly
+- builds and calls the JIT entrypoint with no helper layer in between
 
-The JIT module:
+The Pythonic path:
+
+- wraps the callback lifetime and symbol registration in a small context-managed
+  harness
+- keeps the JIT module shape the same
+- reduces boilerplate around registration and cleanup without hiding the call boundary
+
+The JIT module in both variants:
 
 - declares the callback symbol as an external function
-- calls it from an exported function named `exercise_host_symbol`
+- calls it from an exported function
 
 ## How to Run
 
@@ -39,13 +47,16 @@ docker compose run --rm dev uv run python explorations/lab/llvmlite-host-symbol-
 
 The output shows:
 
-- the generated IR that references a host-provided symbol
+- the generated IR that references a host-provided symbol in both variants
+- the single entry block and direct call sites remain obvious in the IR
 - the host symbol name and address registered with LLVM
 - the ordered host-side call log captured by the Python callback
 - the return value computed by JITed code through that callback
+- the comparison between the raw and Pythonic runs
 
 That makes the host/JIT boundary visible instead of hiding it behind a larger export
-framework.
+framework. The Pythonic wrapper stays thin enough that the external declaration and the
+direct call site are still obvious in the emitted IR.
 
 ## Pattern / Takeaway
 
@@ -71,6 +82,9 @@ The other subtlety is scope: symbol registration is process-level binding state,
 per-module capability negotiation system. Use stable names deliberately and do not
 assume a JIT module unload automatically undoes the registration for you.
 
+The Pythonic helper does not change those facts. It just makes the ownership rules
+harder to miss by tying the callback object to a context-managed harness.
+
 ## Apply When
 
 Use this pattern when:
@@ -78,6 +92,8 @@ Use this pattern when:
 - JITed code needs to invoke host-owned helpers or logging hooks
 - you want to keep the interop surface small and inspectable
 - you need a clear proof that control crossed the host/JIT boundary
+- you want a helper object to make callback lifetime management obvious without hiding
+  the raw symbol registration mechanics
 
 ## Avoid When
 
@@ -88,9 +104,14 @@ depends on.
 Avoid using this as a replacement for a larger runtime context when many services or
 stateful resources must cross the boundary.
 
+Avoid replacing the raw variant entirely. It is the reference shape that keeps the
+registration and call boundary honest.
+
 ## Next Questions
 
 - When should a callback remain a direct symbol versus moving behind a runtime context?
 - What is the cleanest way to structure multiple host callbacks without creating name
   collisions or hidden dependencies?
 - Which host/JIT interactions should return status codes instead of direct values?
+- Should the helper evolve into a broader runtime context, or stay scoped to single
+  callback lifetimes?

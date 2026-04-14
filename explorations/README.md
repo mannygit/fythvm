@@ -8,6 +8,14 @@ the result reusable later. A finished lab is not just a scratch script. It shoul
 make the pattern or takeaway obvious enough that another engineer can tell when to
 apply it and when not to.
 
+For builder-heavy labs, prefer a dual-style format:
+
+- a raw IR-like variant that stays close to explicit llvmlite builder structure
+- a Pythonic companion variant that uses host-language features to improve readability
+
+The raw variant is the source of truth. The Pythonic variant is allowed to evolve as
+stronger patterns emerge, but it should stay explainable against the raw baseline.
+
 ## Layout
 
 - `BACKLOG.md` tracks exploration ideas and status.
@@ -50,6 +58,11 @@ and should not be done casually from a lab.
 generated IR, comparison cases, or small focused examples over undifferentiated
 debug prints.
 
+When a lab has both raw and Pythonic variants, run them side by side in the same lab.
+The Pythonic variant should keep control-flow structure legible. Use context managers,
+small helper objects, or other local abstractions to reduce noise, but do not make
+blocks, branches, or phi ownership harder to see than they are in the raw version.
+
 Each lab `README.md` must include:
 
 - `Question`
@@ -83,3 +96,7 @@ AI agents should:
 A lab is only complete if another engineer can run it later, read the explanation,
 and understand both the result and the situations where the learned pattern should
 or should not be used.
+
+When a lab includes a Pythonic companion variant, it is only complete if another
+engineer can still point back to the raw version and explain why the abstraction is
+safe, clearer, and worth keeping.

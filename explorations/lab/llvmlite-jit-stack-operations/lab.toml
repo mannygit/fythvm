@@ -1,6 +1,6 @@
 slug = "llvmlite-jit-stack-operations"
 title = "llvmlite JIT stack operations"
-summary = "Show a small downward-growing JITed stack with host-visible snapshots after each exported operation."
+summary = "Show raw and Pythonic downward-growing JITed stack styles with host-visible snapshots after each exported operation."
 status = "stable"
 tags = ["llvmlite", "jit", "stack", "runtime", "memory"]
 run = "uv run python explorations/lab/llvmlite-jit-stack-operations/run.py"

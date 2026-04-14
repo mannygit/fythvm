@@ -1,6 +1,6 @@
 slug = "metaprogramming-ir-builders"
 title = "Metaprogramming IR builders"
-summary = "Compare handwritten llvmlite control flow with one thin helper that removes repeated branch/phi boilerplate."
+summary = "Compare a raw llvmlite branch/phi baseline with a tiny context-managed helper that keeps the CFG visible."
 status = "draft"
 tags = ["llvmlite", "metaprogramming", "ir", "helpers"]
 run = "uv run python explorations/lab/metaprogramming-ir-builders/run.py"
