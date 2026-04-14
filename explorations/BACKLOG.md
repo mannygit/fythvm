@@ -5,16 +5,15 @@ close out. Keep the backlog small and explicit.
 
 ## Ready
 
-## Triage
-
 - `loop-carried-traversal-phis`
   - Title: Loop-carried traversal phis
   - Goal: Capture the linked-list traversal shape from `~/fyth` where one phi carries
     the loop cursor and another phi carries derived state like a count.
   - Why it matters: This is a stronger phi pattern than a simple branch/merge because
     it shows phis as loop-carried state in traversal code.
-  - Distinct from existing labs: `ssa-phi-merge` covers branch joins, not traversal
-    loops with carried state and optional short-circuit exits.
+  - Success signal: The lab demonstrates traversal with a cursor phi, an accumulator
+    phi, and at least one early-exit or derived-result case that makes the carried
+    state visible.
 
 - `result-carrier-phi-sentinels`
   - Title: Result-carrier phi with sentinel values
@@ -22,8 +21,21 @@ close out. Keep the backlog small and explicit.
     result or a sentinel such as `-1`.
   - Why it matters: `~/fyth` used this in byte and word comparison paths, and it is a
     real learned-by-doing pattern for compact loop results.
-  - Distinct from existing labs: this is not just “use phi at a merge”; it is about
-    using phi as a semantic result carrier.
+  - Success signal: The lab shows a loop or staged comparison whose final phi carries
+    either a useful result or a sentinel, and explains why that is cleaner than
+    branching out to separate return blocks.
+
+- `musttail-chunked-memory-ops`
+  - Title: `musttail` chunked copy and compare
+  - Goal: Rebuild the abandoned `test_memory2.py` experiments that implemented copy
+    and compare through chunked tail recursion over 8-byte, 4-byte, then 1-byte cases.
+  - Why it matters: This is unusually low-level IR work that clearly came from
+    experimentation and is not represented anywhere in the current labs.
+  - Success signal: The lab demonstrates one or both chunked memory operations,
+    explains the `musttail` constraints, and makes the chunk-selection logic and tail
+    recursion shape visible in the emitted IR and output.
+
+## Triage
 
 - `multi-stage-early-exit-search`
   - Title: Multi-stage early-exit search blocks
@@ -33,15 +45,6 @@ close out. Keep the backlog small and explicit.
     loops, and it is a useful lowering shape for searches.
   - Distinct from existing labs: the current phi lab is simpler and does not cover
     multi-stage early-exit composition.
-
-- `musttail-chunked-memory-ops`
-  - Title: `musttail` chunked copy and compare
-  - Goal: Rebuild the abandoned `test_memory2.py` experiments that implemented copy
-    and compare through chunked tail recursion over 8-byte, 4-byte, then 1-byte cases.
-  - Why it matters: This is unusually low-level IR work that clearly came from
-    experimentation and is not represented anywhere in the current labs.
-  - Distinct from existing labs: it is about legal and useful `musttail` recursion,
-    not ordinary loops or ordinary JIT calls.
 
 - `direct-threaded-musttail-dispatch`
   - Title: Direct-threaded interpreter dispatch with `musttail`
