@@ -5,42 +5,6 @@ close out. Keep the backlog small and explicit.
 
 ## Ready
 
-- `metaprogramming-ir-builders`
-  - Title: Metaprogramming patterns for repetitive IR construction
-  - Goal: Capture a reusable way to generate repeated llvmlite builder code without
-    turning the codegen path opaque.
-  - Why it matters: Repetition is easy to generate but hard to keep readable and
-    debuggable.
-  - Success signal: The lab demonstrates one pattern that improves reuse and clearly
-    states when the abstraction helps versus when it obscures the IR shape.
-
-- `delayed-ir-export-pattern`
-  - Title: Deferred IR export and finalization pattern
-  - Goal: Redesign the useful idea behind `~/fyth`'s delayed export flow without
-    reproducing its fragile global import-time architecture.
-  - Why it matters: Some codegen paths want forward declarations first and concrete IR
-    emission later, but the coordination needs to stay explicit and testable.
-  - Success signal: The lab shows a clean delayed-definition workflow with obvious
-    ordering rules and without leaning on global mutable registries as magic.
-
-- `word-header-packing-and-flags`
-  - Title: Word header packing and hidden/immediate flags
-  - Goal: Rebuild the word-name/header packing idea from `~/fyth` as a small focused
-    experiment.
-  - Why it matters: Dictionary formats are easiest to reason about when the byte-level
-    layout and flag semantics are made concrete.
-  - Success signal: The lab demonstrates packing, unpacking, and comparison behavior
-    with clear output and explicit limits.
-
-- `dictionary-linked-memory-layout`
-  - Title: Linked dictionary layout in linear memory
-  - Goal: Explore a linked-list-style dictionary layout derived from `~/fyth` without
-    inheriting its unstable direct implementation path.
-  - Why it matters: A clean linked dictionary model could still be useful, but the old
-    path needs redesign rather than extraction.
-  - Success signal: The lab shows insertion and traversal semantics in a way that is
-    simpler and more reliable than the old code.
-
 ## In Progress
 
 None.
@@ -143,6 +107,54 @@ None.
   - Takeaway: Keep risky ctor/dtor behavior as a quarantined negative control with a
     safe default run and any runtime attempt isolated in a child process.
   - Lab: `explorations/lab/mcjit-global-ctor-dtor-negative-control/`
+
+- `metaprogramming-ir-builders`
+  - Title: Metaprogramming patterns for repetitive IR construction
+  - Goal: Capture a reusable way to generate repeated llvmlite builder code without
+    turning the codegen path opaque.
+  - Why it matters: Repetition is easy to generate but hard to keep readable and
+    debuggable.
+  - Success signal: The lab demonstrates one pattern that improves reuse and clearly
+    states when the abstraction helps versus when it obscures the IR shape.
+  - Takeaway: Bless one thin helper for repeated branch/phi boilerplate, but stop
+    before helper composition starts hiding the CFG you need to understand.
+  - Lab: `explorations/lab/metaprogramming-ir-builders/`
+
+- `delayed-ir-export-pattern`
+  - Title: Deferred IR export and finalization pattern
+  - Goal: Redesign the useful idea behind `~/fyth`'s delayed export flow without
+    reproducing its fragile global import-time architecture.
+  - Why it matters: Some codegen paths want forward declarations first and concrete IR
+    emission later, but the coordination needs to stay explicit and testable.
+  - Success signal: The lab shows a clean delayed-definition workflow with obvious
+    ordering rules and without leaning on global mutable registries as magic.
+  - Takeaway: Use a host-owned, module-scoped export plan with declaration first,
+    body emission later, and explicit finalization as the moment exports become callable.
+  - Lab: `explorations/lab/delayed-ir-export-pattern/`
+
+- `word-header-packing-and-flags`
+  - Title: Word header packing and hidden/immediate flags
+  - Goal: Rebuild the word-name/header packing idea from `~/fyth` as a small focused
+    experiment.
+  - Why it matters: Dictionary formats are easiest to reason about when the byte-level
+    layout and flag semantics are made concrete.
+  - Success signal: The lab demonstrates packing, unpacking, and comparison behavior
+    with clear output and explicit limits.
+  - Takeaway: Treat the lightweight `words.py` header as the v1 canonical shape:
+    one byte for length and flags, with visibility and metadata policy layered on top.
+  - Lab: `explorations/lab/word-header-packing-and-flags/`
+
+- `dictionary-linked-memory-layout`
+  - Title: Linked dictionary layout in linear memory
+  - Goal: Explore a linked-list-style dictionary layout derived from `~/fyth` without
+    inheriting its unstable direct implementation path.
+  - Why it matters: A clean linked dictionary model could still be useful, but the old
+    path needs redesign rather than extraction.
+  - Success signal: The lab shows insertion and traversal semantics in a way that is
+    simpler and more reliable than the old code.
+  - Takeaway: Model the dictionary head as the newest payload offset and store the
+    previous payload offset in the cell immediately before each payload.
+  - Lab: `explorations/lab/dictionary-linked-memory-layout/`
 
 ## Icebox
 

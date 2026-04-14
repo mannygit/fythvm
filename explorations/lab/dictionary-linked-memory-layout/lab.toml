@@ -1,0 +1,8 @@
+slug = "dictionary-linked-memory-layout"
+title = "Dictionary Linked Memory Layout"
+summary = "Show how a linear-memory dictionary stores newest-first linked entries with a previous-link cell before each payload."
+status = "draft"
+tags = ["fyth", "memory", "dictionary", "linked-list", "layout"]
+run = "uv run python explorations/lab/dictionary-linked-memory-layout/run.py"
+agent_authored = true
+safe_to_smoke = true

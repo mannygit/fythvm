@@ -1,0 +1,8 @@
+slug = "word-header-packing-and-flags"
+title = "Word Header Packing And Flags"
+summary = "Show how a v1 word header packs length, hidden, and immediate flags into one byte."
+status = "draft"
+tags = ["fyth", "words", "packing", "flags", "exploration"]
+run = "uv run python explorations/lab/word-header-packing-and-flags/run.py"
+agent_authored = true
+safe_to_smoke = true
