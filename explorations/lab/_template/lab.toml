@@ -1,0 +1,8 @@
+slug = "{{ slug }}"
+title = "{{ title }}"
+summary = "One-sentence summary of the exploration."
+status = "draft"
+tags = ["replace-me"]
+run = "uv run python explorations/lab/{{ slug }}/run.py"
+agent_authored = true
+safe_to_smoke = false

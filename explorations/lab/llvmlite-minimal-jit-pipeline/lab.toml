@@ -1,0 +1,8 @@
+slug = "llvmlite-minimal-jit-pipeline"
+title = "Minimal llvmlite JIT pipeline"
+summary = "Build a tiny add function, print the IR, and execute it through MCJIT."
+status = "stable"
+tags = ["llvmlite", "jit", "baseline", "ir"]
+run = "uv run python explorations/lab/llvmlite-minimal-jit-pipeline/run.py"
+agent_authored = true
+safe_to_smoke = false

@@ -55,3 +55,10 @@ docker compose run --rm dev uv run ruff format
 # Type check
 docker compose run --rm dev uv run mypy src
 ```
+
+## Explorations
+
+Exploratory runnable research artifacts live under `explorations/`.
+
+See `explorations/README.md` for the lab format, authoring rules, and backlog-driven
+workflow.
