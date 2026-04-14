@@ -5,6 +5,90 @@ close out. Keep the backlog small and explicit.
 
 ## Ready
 
+## Triage
+
+- `loop-carried-traversal-phis`
+  - Title: Loop-carried traversal phis
+  - Goal: Capture the linked-list traversal shape from `~/fyth` where one phi carries
+    the loop cursor and another phi carries derived state like a count.
+  - Why it matters: This is a stronger phi pattern than a simple branch/merge because
+    it shows phis as loop-carried state in traversal code.
+  - Distinct from existing labs: `ssa-phi-merge` covers branch joins, not traversal
+    loops with carried state and optional short-circuit exits.
+
+- `result-carrier-phi-sentinels`
+  - Title: Result-carrier phi with sentinel values
+  - Goal: Show the comparison/search shape where a phi returns either a meaningful
+    result or a sentinel such as `-1`.
+  - Why it matters: `~/fyth` used this in byte and word comparison paths, and it is a
+    real learned-by-doing pattern for compact loop results.
+  - Distinct from existing labs: this is not just “use phi at a merge”; it is about
+    using phi as a semantic result carrier.
+
+- `multi-stage-early-exit-search`
+  - Title: Multi-stage early-exit search blocks
+  - Goal: Capture the pattern of several decision stages converging on one `exit`
+    block with a phi carrying either the found value or a sentinel.
+  - Why it matters: `~/fyth` used this for hidden checks, length checks, and compare
+    loops, and it is a useful lowering shape for searches.
+  - Distinct from existing labs: the current phi lab is simpler and does not cover
+    multi-stage early-exit composition.
+
+- `musttail-chunked-memory-ops`
+  - Title: `musttail` chunked copy and compare
+  - Goal: Rebuild the abandoned `test_memory2.py` experiments that implemented copy
+    and compare through chunked tail recursion over 8-byte, 4-byte, then 1-byte cases.
+  - Why it matters: This is unusually low-level IR work that clearly came from
+    experimentation and is not represented anywhere in the current labs.
+  - Distinct from existing labs: it is about legal and useful `musttail` recursion,
+    not ordinary loops or ordinary JIT calls.
+
+- `direct-threaded-musttail-dispatch`
+  - Title: Direct-threaded interpreter dispatch with `musttail`
+  - Goal: Capture the `next_fn` / `@EXECUTE` / `EXECUTE` pattern from `forth.py` and
+    `forth_base.py` as a direct-threaded interpreter dispatch shape.
+  - Why it matters: This is one of the most distinctive patterns in `~/fyth` and a
+    good example of learned LLVM control-flow design.
+  - Distinct from existing labs: none of the current labs cover threaded interpreter
+    dispatch or tail-called continuation threading.
+
+- `terminator-rewrite-next-trampoline`
+  - Title: Terminator rewrite for next-step trampolines
+  - Goal: Capture the pattern where generated functions are post-processed by
+    replacing their terminator, appending a `next` block, and tail-calling a shared
+    continuation.
+  - Why it matters: This is an unusual but concrete technique for retrofitting a
+    common continuation onto existing emitted functions.
+  - Distinct from existing labs: it is not the same as delayed export or generic tail
+    calls; it is specifically about CFG rewriting after function generation.
+
+- `forward-declare-then-reopen-function`
+  - Title: Forward declare and reopen function emission
+  - Goal: Capture the `create_function()` pattern that reuses an existing named
+    function when reopening emission after a forward declaration.
+  - Why it matters: This is adjacent to delayed export, but it is its own pattern for
+    safe re-entry into function construction.
+  - Distinct from existing labs: `delayed-ir-export-pattern` focuses on module-scoped
+    export planning, not reopening an already-declared function by name.
+
+- `alignment-bit-tricks-vs-branch-phi`
+  - Title: Alignment bit tricks versus branch-plus-phi
+  - Goal: Capture the shift from a branchy alignment calculation to the compact
+    bit-mask form `(index + 3) & -4`.
+  - Why it matters: It is a small but real lowering insight that likely came from
+    experimentation rather than formal compiler training.
+  - Distinct from existing labs: this is a low-level address arithmetic pattern, not a
+    control-flow or lifecycle pattern.
+
+- `select-driven-comparison-builtins`
+  - Title: `select`-driven comparison builtin factoring
+  - Goal: Capture the shared-helper shape used in `forth_equality.py` where several
+    stack comparisons lower to `icmp` plus `select`.
+  - Why it matters: It is a compact pattern for repeated comparison lowering and shows
+    where helper abstraction stays acceptable.
+  - Distinct from existing labs: it overlaps slightly with `metaprogramming-ir-builders`
+    but is specifically about arithmetic/comparison lowering via `select`.
+
 ## In Progress
 
 None.
