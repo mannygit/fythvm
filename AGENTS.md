@@ -1,5 +1,28 @@
 # fythvm — Warp Project Rules
 
+## Cloud Agent Environment (Oz)
+
+**Cloud agents run on Linux.** Do not use Docker. Use `uv` directly:
+
+```bash
+# Install dependencies
+uv sync
+
+# Run tests
+uv run pytest
+
+# Lint
+uv run ruff check
+
+# Format
+uv run ruff format
+
+# Type check
+uv run mypy src
+```
+
+`llvmlite` pre-built Linux wheels are available via PyPI — no LLVM or CMake installation is needed.
+
 ## Local Development
 
 **All local development must use Docker.** Do not attempt to run tests, install dependencies, or execute any project commands directly on the host machine (macOS or Windows).
