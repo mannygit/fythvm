@@ -25,11 +25,28 @@ uv run mypy src
 
 ## Local Development
 
-**All local development must use Docker.** Do not attempt to run tests, install dependencies, or execute any project commands directly on the host machine (macOS or Windows).
+**Default local development uses Docker**, except for one supported host path:
+
+- Intel macOS
+- Python 3.14
+- vendored wheel at `vendor/llvmlite/llvmlite-0.47.0-cp314-cp314-macosx_12_0_x86_64.whl`
+
+On that exact host combination, use `uv` directly:
+
+```bash
+uv sync
+uv run pytest
+uv run ruff check
+uv run ruff format
+uv run mypy src
+```
+
+For all other local hosts, use Docker. That includes Apple Silicon macOS, Windows, and unsupported Python versions.
 
 - Use the provided Warp environment: `ghcr.io/mannygit/warp-env-fythvm:latest`
-- Never suggest or use `brew install llvm cmake` or BYO LLVM as an alternative.
-- If a command fails due to missing `llvmlite`, `cmake`, or `LLVM`, instruct the user to use Docker — do not attempt to fix it on the host.
+- Use `vendor/llvmlite/llvmlite-python314-build.md` only when the supported Intel macOS host path needs the vendored wheel rebuilt.
+- Do not suggest arbitrary BYO LLVM flows outside that documented Intel macOS wheel-build path.
+- If a local command fails due to host/toolchain issues on an unsupported machine, instruct the user to use Docker instead of trying to force a host install.
 
 ## Project Skills
 
