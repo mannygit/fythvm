@@ -103,6 +103,21 @@ None.
     not by hiding the boundary behind framework magic.
   - Lab: `explorations/lab/llvmlite-host-symbol-exposure/`
 
+- `llvmlite-mem-intrinsics`
+  - Title: llvmlite mem intrinsics
+  - Goal: Show the exact `llvmlite` pattern for declaring and calling LLVM
+    `memcpy`, `memmove`, and `memset` intrinsics directly.
+  - Why it matters: The builder has no convenience helpers for these intrinsics in the
+    installed llvmlite, so the real declaration and call shape needs to be captured
+    explicitly.
+  - Success signal: The lab prints emitted intrinsic declarations and demonstrates
+    working `memcpy`, overlapping `memmove`, and `memset` behavior against live
+    `ctypes` buffers.
+  - Takeaway: Use `Module.declare_intrinsic(...)` plus a normal call with the trailing
+    `i1 isvolatile` argument; the memory intrinsics are supported, just not wrapped by
+    IRBuilder helper methods.
+  - Lab: `explorations/lab/llvmlite-mem-intrinsics/`
+
 - `llvmlite-jit-stack-operations`
   - Title: llvmlite JIT stack operations
   - Goal: Rebuild the old `~/fyth` stack idea as a minimal JITed downward-growing

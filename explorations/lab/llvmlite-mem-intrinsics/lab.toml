@@ -1,0 +1,8 @@
+slug = "llvmlite-mem-intrinsics"
+title = "llvmlite mem intrinsics"
+summary = "Show how to declare and call LLVM memcpy, memmove, and memset intrinsics directly from llvmlite."
+status = "stable"
+tags = ["llvmlite", "jit", "intrinsics", "memory", "memcpy"]
+run = "uv run python explorations/lab/llvmlite-mem-intrinsics/run.py"
+agent_authored = true
+safe_to_smoke = false
