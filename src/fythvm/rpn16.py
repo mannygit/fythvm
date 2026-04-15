@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
+from enum import Enum, IntEnum
 from typing import Callable, Literal, Sequence
 
 from llvmlite import binding, ir
@@ -27,14 +28,6 @@ STACK_SIZE = 8
 TAG_MASK = 0x8000
 LITERAL_MAX = 0x7FFF
 
-STATUS_OK = 0
-STATUS_STACK_UNDERFLOW = 1
-STATUS_DIVIDE_BY_ZERO = 2
-STATUS_BAD_OPCODE = 3
-STATUS_MISSING_EXIT = 4
-STATUS_STACK_NOT_SINGLETON = 5
-STATUS_STACK_OVERFLOW = 6
-
 OP_ADD = TAG_MASK | ord("+")
 OP_SUB = TAG_MASK | ord("-")
 OP_MUL = TAG_MASK | ord("*")
@@ -49,6 +42,16 @@ KNOWN_OPS = {
     OP_MOD: "%",
     OP_EXIT: "=",
 }
+
+
+class Status(IntEnum):
+    OK = 0
+    STACK_UNDERFLOW = 1
+    DIVIDE_BY_ZERO = 2
+    BAD_OPCODE = 3
+    MISSING_EXIT = 4
+    STACK_NOT_SINGLETON = 5
+    STACK_OVERFLOW = 6
 
 BinaryOperation = Callable[[ir.IRBuilder, ir.Value, ir.Value], ir.Value]
 
@@ -91,6 +94,22 @@ OPCODE_SPECS = (
     _OpcodeSpec(OP_EXIT, "exit", "exit"),
 )
 
+
+@dataclass(frozen=True)
+class _StatusTarget:
+    kind: "_StatusKind"
+    block: ir.Block
+    status: int
+
+
+class _StatusKind(Enum):
+    UNDERFLOW = "underflow"
+    DIVZERO = "divzero"
+    BAD_EXIT_SHAPE = "bad_exit_shape"
+    OVERFLOW = "overflow"
+    BAD_OPCODE = "bad_opcode"
+
+
 class CalcContext(ctypes.Structure):
     _fields_ = [
         ("stack", ctypes.c_int16 * STACK_SIZE),
@@ -100,7 +119,7 @@ class CalcContext(ctypes.Structure):
 
 @dataclass(frozen=True)
 class EvalResult:
-    status: int
+    status: Status
     result: int
     sp: int
     logical_stack: list[int]
@@ -132,7 +151,7 @@ class CompiledCalculator:
             ctypes.POINTER(ctypes.c_int16),
         )(self._eval_addr)
 
-        status = int(
+        status = Status(
             eval_cells(
                 ctypes.cast(program, ctypes.POINTER(ctypes.c_int16)),
                 len(cells),
@@ -172,13 +191,13 @@ def render_program(cells: Sequence[int]) -> str:
 
 def status_name(status: int) -> str:
     return {
-        STATUS_OK: "ok",
-        STATUS_STACK_UNDERFLOW: "stack_underflow",
-        STATUS_DIVIDE_BY_ZERO: "divide_by_zero",
-        STATUS_BAD_OPCODE: "bad_opcode",
-        STATUS_MISSING_EXIT: "missing_exit",
-        STATUS_STACK_NOT_SINGLETON: "stack_not_singleton",
-        STATUS_STACK_OVERFLOW: "stack_overflow",
+        Status.OK: "ok",
+        Status.STACK_UNDERFLOW: "stack_underflow",
+        Status.DIVIDE_BY_ZERO: "divide_by_zero",
+        Status.BAD_OPCODE: "bad_opcode",
+        Status.MISSING_EXIT: "missing_exit",
+        Status.STACK_NOT_SINGLETON: "stack_not_singleton",
+        Status.STACK_OVERFLOW: "stack_overflow",
     }[status]
 
 
@@ -195,18 +214,25 @@ class CalculatorEmitter:
         self.function = ir.Function(module, fn_ty, name=name)
         self.cells_ptr, self.cell_count, self.ctx_ptr, self.out_result_ptr = self.function.args
         self.stack = ContextStructStackAccess(self.ctx_ptr)
-        self.entry_block = self.function.append_basic_block("entry")
-        self.builder = ir.IRBuilder(self.entry_block)
+        entry_block = self.function.append_basic_block("entry")
+        self.builder = ir.IRBuilder(entry_block)
         self.loop = ParamLoop(self.builder, "eval", [("ip", I32)])
         self.literal_check_block = self.function.append_basic_block("literal.check")
-        self.literal_store_block = self.function.append_basic_block("literal.store")
         self.opcode_block = self.function.append_basic_block("opcode.dispatch")
-        self.underflow_block = self.function.append_basic_block("underflow")
-        self.divzero_block = self.function.append_basic_block("divzero")
-        self.bad_opcode_block = self.function.append_basic_block("bad_opcode")
-        self.bad_exit_shape_block = self.function.append_basic_block("bad_exit_shape")
-        self.overflow_block = self.function.append_basic_block("overflow")
+        self.status_targets: dict[_StatusKind, _StatusTarget] = {}
+        self.register_status_target(_StatusKind.UNDERFLOW, Status.STACK_UNDERFLOW)
+        self.register_status_target(_StatusKind.DIVZERO, Status.DIVIDE_BY_ZERO)
+        self.register_status_target(_StatusKind.BAD_EXIT_SHAPE, Status.STACK_NOT_SINGLETON)
+        self.register_status_target(_StatusKind.OVERFLOW, Status.STACK_OVERFLOW)
         self.exit = SharedExit(self.function, [("status", I32), ("result", I16)])
+
+    def register_status_target(self, kind: _StatusKind, status: Status) -> ir.Block:
+        block = self.function.append_basic_block(kind.value)
+        self.status_targets[kind] = _StatusTarget(kind=kind, block=block, status=status)
+        return block
+
+    def status_block(self, kind: _StatusKind) -> ir.Block:
+        return self.status_targets[kind].block
 
     def emit_loop_head(self) -> ir.Value:
         self.stack.store_sp(self.builder, I32(STACK_SIZE))
@@ -231,12 +257,14 @@ class CalculatorEmitter:
             )
 
     def emit_literal_handler(self, step: FetchedCell) -> None:
+        literal_store_block = self.function.append_basic_block("literal.store")
+
         self.builder.position_at_end(self.literal_check_block)
         current_sp = self.stack.load_sp(self.builder)
         has_room = self.builder.icmp_unsigned("!=", current_sp, I32(0), name="has_room")
-        self.builder.cbranch(has_room, self.literal_store_block, self.overflow_block)
+        self.builder.cbranch(has_room, literal_store_block, self.status_block(_StatusKind.OVERFLOW))
 
-        self.builder.position_at_end(self.literal_store_block)
+        self.builder.position_at_end(literal_store_block)
         current_sp = self.stack.load_sp(self.builder)
         new_sp = self.builder.sub(current_sp, I32(1), name="new_sp")
         self.builder.store(step.current_cell, self.stack.slot(self.builder, new_sp))
@@ -255,7 +283,7 @@ class CalculatorEmitter:
         current_sp = self.stack.load_sp(builder)
         enough_items = builder.icmp_unsigned("<=", current_sp, I32(STACK_SIZE - 2), name=f"{spec.name}_enough")
         underflow_ok_block = self.function.append_basic_block(f"{spec.name}.ok")
-        builder.cbranch(enough_items, underflow_ok_block, self.underflow_block)
+        builder.cbranch(enough_items, underflow_ok_block, self.status_block(_StatusKind.UNDERFLOW))
 
         builder.position_at_end(underflow_ok_block)
         rhs = builder.load(self.stack.slot(builder, current_sp, name=f"{spec.name}_rhs_ptr"), name="rhs")
@@ -264,7 +292,7 @@ class CalculatorEmitter:
         if spec.zero_sensitive:
             rhs_is_zero = builder.icmp_signed("==", rhs, I16(0), name=f"{spec.name}_rhs_is_zero")
             nonzero_block = self.function.append_basic_block(f"{spec.name}.nonzero")
-            builder.cbranch(rhs_is_zero, self.divzero_block, nonzero_block)
+            builder.cbranch(rhs_is_zero, self.status_block(_StatusKind.DIVZERO), nonzero_block)
             builder.position_at_end(nonzero_block)
         result = spec.operation(builder, lhs, rhs)
         builder.store(result, self.stack.slot(builder, lhs_index, name=f"{spec.name}_result_ptr"))
@@ -277,15 +305,16 @@ class CalculatorEmitter:
             "==", current_sp, I32(STACK_SIZE - 1), name="has_single_value"
         )
         singleton_ok_block = self.function.append_basic_block("ok.singleton")
-        builder.cbranch(has_single_value, singleton_ok_block, self.bad_exit_shape_block)
+        builder.cbranch(has_single_value, singleton_ok_block, self.status_block(_StatusKind.BAD_EXIT_SHAPE))
 
         builder.position_at_end(singleton_ok_block)
         result = builder.load(self.stack.slot(builder, current_sp), name="result")
-        self.exit.remember(builder, I32(STATUS_OK), result)
+        self.exit.remember(builder, I32(Status.OK), result)
 
     def emit_opcode_dispatch(self, step: FetchedCell) -> None:
         self.builder.position_at_end(self.opcode_block)
-        dispatcher = SwitchDispatcher(self.builder, step.current_cell, self.bad_opcode_block, name="opcode")
+        bad_opcode_block = self.register_status_target(_StatusKind.BAD_OPCODE, Status.BAD_OPCODE)
+        dispatcher = SwitchDispatcher(self.builder, step.current_cell, bad_opcode_block, name="opcode")
         for spec in OPCODE_SPECS:
             if spec.kind == "binary":
                 dispatcher.add_case(
@@ -298,14 +327,9 @@ class CalculatorEmitter:
         dispatcher.emit()
 
     def emit_error_blocks(self) -> None:
-        for block, status in (
-            (self.loop.exit_block, STATUS_MISSING_EXIT),
-            (self.underflow_block, STATUS_STACK_UNDERFLOW),
-            (self.divzero_block, STATUS_DIVIDE_BY_ZERO),
-            (self.bad_opcode_block, STATUS_BAD_OPCODE),
-            (self.bad_exit_shape_block, STATUS_STACK_NOT_SINGLETON),
-            (self.overflow_block, STATUS_STACK_OVERFLOW),
-        ):
+        for block, status in [(self.loop.exit_block, Status.MISSING_EXIT)] + [
+            (target.block, target.status) for target in self.status_targets.values()
+        ]:
             self.builder.position_at_end(block)
             self.exit.remember(self.builder, I32(status), I16(0))
 

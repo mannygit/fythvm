@@ -21,7 +21,7 @@ def calculator() -> rpn16.CompiledCalculator:
 )
 def test_calculator_success_cases(calculator: rpn16.CompiledCalculator, cells: tuple[int, ...], expected_result: int) -> None:
     result = calculator.evaluate(cells)
-    assert result.status == rpn16.STATUS_OK
+    assert result.status == rpn16.Status.OK
     assert result.result == expected_result
     assert result.logical_stack == [expected_result]
 
@@ -29,11 +29,11 @@ def test_calculator_success_cases(calculator: rpn16.CompiledCalculator, cells: t
 @pytest.mark.parametrize(
     ("cells", "expected_status"),
     [
-        ((rpn16.op("+"), rpn16.op("=")), rpn16.STATUS_STACK_UNDERFLOW),
-        ((rpn16.lit(10), rpn16.lit(0), rpn16.op("/"), rpn16.op("=")), rpn16.STATUS_DIVIDE_BY_ZERO),
-        ((rpn16.lit(5), rpn16.TAG_MASK | ord("^"), rpn16.op("=")), rpn16.STATUS_BAD_OPCODE),
-        ((rpn16.lit(1), rpn16.lit(2), rpn16.op("+")), rpn16.STATUS_MISSING_EXIT),
-        ((rpn16.lit(1), rpn16.lit(2), rpn16.op("=")), rpn16.STATUS_STACK_NOT_SINGLETON),
+        ((rpn16.op("+"), rpn16.op("=")), rpn16.Status.STACK_UNDERFLOW),
+        ((rpn16.lit(10), rpn16.lit(0), rpn16.op("/"), rpn16.op("=")), rpn16.Status.DIVIDE_BY_ZERO),
+        ((rpn16.lit(5), rpn16.TAG_MASK | ord("^"), rpn16.op("=")), rpn16.Status.BAD_OPCODE),
+        ((rpn16.lit(1), rpn16.lit(2), rpn16.op("+")), rpn16.Status.MISSING_EXIT),
+        ((rpn16.lit(1), rpn16.lit(2), rpn16.op("=")), rpn16.Status.STACK_NOT_SINGLETON),
         (
             (
                 rpn16.lit(0),
@@ -47,14 +47,14 @@ def test_calculator_success_cases(calculator: rpn16.CompiledCalculator, cells: t
                 rpn16.lit(8),
                 rpn16.op("="),
             ),
-            rpn16.STATUS_STACK_OVERFLOW,
+            rpn16.Status.STACK_OVERFLOW,
         ),
     ],
 )
 def test_calculator_failure_cases(
     calculator: rpn16.CompiledCalculator,
     cells: tuple[int, ...],
-    expected_status: int,
+    expected_status: rpn16.Status,
 ) -> None:
     result = calculator.evaluate(cells)
     assert result.status == expected_status
