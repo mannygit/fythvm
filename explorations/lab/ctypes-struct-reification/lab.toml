@@ -1,0 +1,7 @@
+slug = "ctypes-struct-reification"
+title = "ctypes Struct Reification"
+summary = "Reify ctypes.Structure declarations into llvmlite struct layout and named bound views, including real ctypes bitfields."
+status = "stable"
+tags = ["ctypes", "structs", "llvmlite", "reification", "bitfields"]
+run = "uv run python explorations/lab/ctypes-struct-reification/run.py"
+agent_authored = true

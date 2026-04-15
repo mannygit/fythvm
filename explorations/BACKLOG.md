@@ -154,6 +154,20 @@ None.
     that packedness exactly.
   - Lab: `explorations/lab/llvmlite-struct-machinery/`
 
+- `ctypes-struct-reification`
+  - Title: ctypes struct reification
+  - Goal: Start from real `ctypes.Structure` declarations and reify the correct
+    llvmlite layout plus a named bound view, including real ctypes bitfields.
+  - Why it matters: Once ctypes declarations already exist, re-declaring the same
+    shape by hand in llvmlite is repetitive and easy to get subtly wrong.
+  - Success signal: The lab prints the ctypes declarations, the reified
+    logical-to-physical mapping, emitted IR, matching layout summaries, and live proof
+    that grouped bitfield storage works from both the host and JIT side.
+  - Takeaway: Treat ctypes as the layout source of truth, reify physical storage
+    first, and build logical named field views over that storage instead of pretending
+    bitfields are standalone LLVM struct members.
+  - Lab: `explorations/lab/ctypes-struct-reification/`
+
 - `llvmlite-jit-stack-operations`
   - Title: llvmlite JIT stack operations
   - Goal: Rebuild the old `~/fyth` stack idea as a minimal JITed downward-growing
