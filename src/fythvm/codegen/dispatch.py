@@ -45,6 +45,6 @@ class SwitchDispatcher:
         for spec in self._cases:
             case_block = self.builder.function.append_basic_block(f"{self.name}.{spec.name}")
             switch.add_case(spec.match_value, case_block)
-            self.builder.position_at_end(case_block)
-            spec.emit_case(self.builder)
+            with self.builder.goto_block(case_block):
+                spec.emit_case(self.builder)
         return switch
