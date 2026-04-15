@@ -7,6 +7,7 @@ import ctypes
 from llvmlite import binding, ir
 
 from fythvm.codegen import (
+    BitField,
     BoundStructView,
     ContextStructStackAccess,
     Join,
@@ -18,6 +19,7 @@ from fythvm.codegen import (
     compile_ir_module,
     configure_llvm,
 )
+from fythvm.dictionary.layout import code_field_handle
 
 
 I1 = ir.IntType(1)
@@ -41,6 +43,12 @@ class PairView(BoundStructView):
 class OuterView(BoundStructView):
     pair = StructField(0)
     total = StructField(1)
+
+
+class FlagsView(BoundStructView):
+    cell = StructField(0)
+    low = BitField(0, 0, 3)
+    high = BitField(0, 3, 5)
 
 
 def test_shared_exit_merges_status_and_value() -> None:
@@ -152,6 +160,70 @@ def test_bound_struct_field_can_bind_nested_struct_view() -> None:
     compiled = compile_ir_module(module)
     sum_nested = ctypes.CFUNCTYPE(ctypes.c_longlong)(compiled.function_address("sum_nested"))
     assert sum_nested() == 29
+
+
+def test_bitfield_descriptor_loads_and_stores_logical_fields() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="bitfield_descriptor")
+    module.triple = binding.get_default_triple()
+    flags = StructHandle.literal("flags", I32, view_type=FlagsView)
+    flags_global = flags.define_global(module, "flags_data", I32(0))
+
+    set_fields = ir.Function(module, ir.FunctionType(I32, []), name="set_fields")
+    builder = ir.IRBuilder(set_fields.append_basic_block("entry"))
+    view = flags.bind(builder, flags_global)
+    view.low.store(ir.IntType(3)(5))
+    view.high.store(ir.IntType(5)(17))
+    builder.ret(view.cell.load())
+
+    read_sum = ir.Function(module, ir.FunctionType(I32, []), name="read_sum")
+    builder = ir.IRBuilder(read_sum.append_basic_block("entry"))
+    view = flags.bind(builder, flags_global)
+    low = builder.zext(view.low.load(), I32)
+    high = builder.zext(view.high.load(), I32)
+    builder.ret(builder.add(low, high))
+
+    compiled = compile_ir_module(module)
+    set_fields_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("set_fields"))
+    read_sum_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("read_sum"))
+    assert set_fields_fn() == (17 << 3) | 5
+    assert read_sum_fn() == 22
+
+
+def test_generated_dictionary_code_field_view_exposes_logical_bitfields() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="generated_code_field_view")
+    module.triple = binding.get_default_triple()
+    handle = code_field_handle()
+    code_field_global = handle.define_global(module, "code_field_data", I32(0))
+
+    set_fields = ir.Function(module, ir.FunctionType(I32, []), name="set_code_fields")
+    builder = ir.IRBuilder(set_fields.append_basic_block("entry"))
+    view = handle.bind(builder, code_field_global)
+    view.instruction.store(ir.IntType(7)(42))
+    view.hidden.store(ir.IntType(1)(1))
+    view.name_length.store(ir.IntType(5)(7))
+    view.immediate.store(ir.IntType(1)(1))
+    view.compiling.store(ir.IntType(1)(0))
+    builder.ret(view.cell.load())
+
+    read_fields = ir.Function(module, ir.FunctionType(I32, []), name="read_code_fields")
+    builder = ir.IRBuilder(read_fields.append_basic_block("entry"))
+    view = handle.bind(builder, code_field_global)
+    total = builder.zext(view.instruction.load(), I32)
+    total = builder.add(total, builder.zext(view.hidden.load(), I32))
+    total = builder.add(total, builder.zext(view.name_length.load(), I32))
+    total = builder.add(total, builder.zext(view.immediate.load(), I32))
+    total = builder.add(total, builder.zext(view.compiling.load(), I32))
+    builder.ret(total)
+
+    compiled = compile_ir_module(module)
+    set_fields_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("set_code_fields"))
+    read_fields_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("read_code_fields"))
+    assert set_fields_fn() == (42 | (1 << 7) | (7 << 8) | (1 << 13))
+    assert read_fields_fn() == 42 + 1 + 7 + 1 + 0
 
 
 def test_param_loop_carries_one_value_through_loop_header() -> None:

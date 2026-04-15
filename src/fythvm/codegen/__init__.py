@@ -12,14 +12,16 @@ from .llvm import CompiledIRModule, compile_ir_module, configure_llvm
 from .dispatch import SwitchCaseSpec, SwitchDispatcher
 from .loops import ParamLoop
 from .stack import AbstractStackAccess, BoundStackAccess, ContextStructStackAccess, PoppedPair
-from .structs import BoundStructField, BoundStructView, StructField, StructHandle
+from .structs import BitField, BoundBitField, BoundStructField, BoundStructView, StructField, StructHandle
 from .types import I16, I16_PTR, I32
 
 __all__ = [
     "AbstractStackAccess",
     "BoundStackAccess",
     "BoundStructField",
+    "BoundBitField",
     "BoundStructView",
+    "BitField",
     "CompiledIRModule",
     "ContextStructStackAccess",
     "FetchedCell",

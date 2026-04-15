@@ -5,23 +5,6 @@ close out. Keep the backlog small and explicit.
 
 ## Ready
 
-- `ctypes-schema-to-layout-codegen`
-  - Title: ctypes schema to generated layout codegen
-  - Goal: Capture the pattern where a canonical `ctypes` schema drives generated
-    llvmlite layout/view helpers, with a clear regeneration path and a strict "do not
-    edit the generated file" boundary.
-  - Why it matters: The repo now depends on this pattern in real package code, so the
-    abstraction boundary should be documented and stress-tested explicitly instead of
-    remaining an implicit one-off refactor.
-
-- `logical-bitfield-views`
-  - Title: Logical bitfield views over physical storage
-  - Goal: Show how to layer named logical accessors over packed storage fields such as
-    `CodeField`, instead of stopping at the physical storage-unit view.
-  - Why it matters: The struct reification work already proved the storage side; the
-    next abstraction step is making those packed fields pleasant to consume without
-    lying about the underlying layout.
-
 - `dictionary-construction-abstractions`
   - Title: Dictionary construction abstractions
   - Goal: Refine the new pure Python + ctypes dictionary runtime into cleaner word
@@ -102,9 +85,41 @@ close out. Keep the backlog small and explicit.
 
 ## In Progress
 
-None.
+- `generated-layout-wrapper-convention`
+  - Title: Generated layout wrapper convention
+  - Goal: Capture the convention where the generated layout core is marked `DO NOT
+    EDIT` and a neighboring hand-authored wrapper is the intentional place to add
+    ergonomic naming and helper methods.
+  - Why it matters: Agents and humans need a clear edit boundary once generated layout
+    files become normal package infrastructure.
+  - Lab target: `explorations/lab/generated-layout-wrapper-convention/`
 
 ## Done
+
+- `nested-schema-family-generation`
+  - Title: Nested schema family generation
+  - Goal: Generalize schema-driven layout generation so nested struct families are
+    discovered from declared roots instead of maintained as a hand-curated flat list.
+  - Why it matters: The dictionary package now depends on schema-driven generation, so
+    nested families needed to become generic rather than manually curated.
+  - Success signal: The schema declares roots, derives the full struct family
+    generically, and the dictionary layout generator consumes that derived family.
+  - Takeaway: Let the schema own the family boundary; generation should walk nested
+    structs from declared roots instead of duplicating the family by hand.
+  - Package: `src/fythvm/dictionary/schema.py`, `scripts/generate_dictionary_layout.py`
+
+- `logical-bitfield-views`
+  - Title: Logical bitfield views over physical storage
+  - Goal: Add named logical accessors over packed storage fields such as `CodeField`
+    instead of stopping at the physical storage-unit view.
+  - Why it matters: The generated layout layer now needs to expose pleasant logical
+    field access without lying about the underlying packed storage.
+  - Success signal: Promoted `BitField` / `BoundBitField` descriptors exist in package
+    code, generated dictionary layout views expose logical `CodeField` accessors, and
+    the generated accessors are covered by tests.
+  - Takeaway: Keep physical storage explicit, but generate logical bitfield views on
+    top of it when the schema is already authoritative.
+  - Package: `src/fythvm/codegen/structs.py`, `src/fythvm/dictionary/layout.py`
 
 - `ctypes-composite-runtime-layout`
   - Title: ctypes composite runtime layout

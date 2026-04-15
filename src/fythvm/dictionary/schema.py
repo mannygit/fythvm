@@ -93,14 +93,48 @@ class InterpreterRuntimeData(ctypes.Structure):
     ]
 
 
-IR_STRUCTS = (
-    Registers,
-    StackBounds,
-    CodeField,
+IR_SCHEMA_ROOTS = (
     WordPrefix,
     DictionaryMemory,
     InterpreterRuntimeData,
 )
+
+
+def _referenced_struct_types(field_type: object) -> tuple[type[ctypes.Structure], ...]:
+    if isinstance(field_type, type) and issubclass(field_type, ctypes.Structure):
+        return (field_type,)
+    if isinstance(field_type, type) and issubclass(field_type, ctypes.Array):
+        return _referenced_struct_types(field_type._type_)
+    if isinstance(field_type, type) and issubclass(field_type, ctypes._Pointer):  # type: ignore[attr-defined]
+        return _referenced_struct_types(field_type._type_)
+    return ()
+
+
+def _field_types(struct_cls: type[ctypes.Structure]) -> list[object]:
+    return [field_type for _name, field_type, *_rest in struct_cls._fields_]
+
+
+def iter_schema_family(
+    roots: tuple[type[ctypes.Structure], ...] = IR_SCHEMA_ROOTS,
+) -> tuple[type[ctypes.Structure], ...]:
+    ordered: list[type[ctypes.Structure]] = []
+    seen: set[type[ctypes.Structure]] = set()
+
+    def visit(struct_cls: type[ctypes.Structure]) -> None:
+        if struct_cls in seen:
+            return
+        seen.add(struct_cls)
+        for field_type in _field_types(struct_cls):
+            for nested in _referenced_struct_types(field_type):
+                visit(nested)
+        ordered.append(struct_cls)
+
+    for root in roots:
+        visit(root)
+    return tuple(ordered)
+
+
+IR_STRUCTS = iter_schema_family()
 
 
 __all__ = [
@@ -109,6 +143,7 @@ __all__ = [
     "DEFAULT_STACK_CELLS",
     "HIDDEN_MASK",
     "IMMEDIATE_MASK",
+    "IR_SCHEMA_ROOTS",
     "IR_STRUCTS",
     "NAME_LENGTH_MASK",
     "NULL_INDEX",
@@ -119,4 +154,5 @@ __all__ = [
     "StackBounds",
     "WordPrefix",
     "align_up",
+    "iter_schema_family",
 ]

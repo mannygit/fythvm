@@ -1,0 +1,7 @@
+slug = "generated-layout-wrapper-convention"
+title = "Generated Layout Wrapper Convention"
+summary = "Show the convention where a generated layout core is non-editable and a neighboring hand-authored wrapper is the intended place for ergonomic customization."
+status = "draft"
+tags = ["generation", "structs", "workflow", "ergonomics"]
+run = "uv run python explorations/lab/generated-layout-wrapper-convention/run.py"
+agent_authored = true

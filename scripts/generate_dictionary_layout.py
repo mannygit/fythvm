@@ -24,6 +24,13 @@ INT_TYPE_NAMES = {
     ctypes.c_uint64: "I64",
 }
 
+SIGNED_INT_TYPES = {
+    ctypes.c_int8,
+    ctypes.c_int16,
+    ctypes.c_int32,
+    ctypes.c_int64,
+}
+
 
 HANDLE_FN_NAMES = {
     "Registers": "registers_handle",
@@ -61,6 +68,35 @@ def field_specs(struct_cls: type[ctypes.Structure]) -> list[tuple[str, object]]:
     return specs
 
 
+def logical_bitfield_specs(struct_cls: type[ctypes.Structure]) -> list[tuple[str, int, int, int, bool]]:
+    offset_to_storage_index: dict[int, int] = {}
+    physical_index = 0
+    seen_offsets: set[int] = set()
+    for field_spec in struct_cls._fields_:
+        field_name, _field_type, *rest = field_spec
+        storage_offset = getattr(struct_cls, field_name).offset
+        if rest and storage_offset in seen_offsets:
+            continue
+        seen_offsets.add(storage_offset)
+        offset_to_storage_index[storage_offset] = physical_index
+        physical_index += 1
+
+    bit_offsets: dict[int, int] = {}
+    specs: list[tuple[str, int, int, int, bool]] = []
+    for field_spec in struct_cls._fields_:
+        name, field_type, *rest = field_spec
+        if not rest:
+            continue
+        bit_width = rest[0]
+        storage_offset = getattr(struct_cls, name).offset
+        bit_offset = bit_offsets.get(storage_offset, 0)
+        storage_index = offset_to_storage_index[storage_offset]
+        signed = field_type in SIGNED_INT_TYPES
+        specs.append((name, storage_index, bit_offset, bit_width, signed))
+        bit_offsets[storage_offset] = bit_offset + bit_width
+    return specs
+
+
 def ir_type_expr(field_type: object) -> str:
     if isinstance(field_type, type) and issubclass(field_type, ctypes.Structure):
         return f"{HANDLE_FN_NAMES[field_type.__name__]}().ir_type"
@@ -84,6 +120,11 @@ def emit_views() -> list[str]:
         lines.append(f"class {view_name(struct_cls)}(BoundStructView):")
         for index, (field_name, _field_type) in enumerate(field_specs(struct_cls)):
             lines.append(f"    {field_name} = StructField({index})")
+        for field_name, storage_index, bit_offset, bit_width, signed in logical_bitfield_specs(struct_cls):
+            args = f"{storage_index}, {bit_offset}, {bit_width}"
+            if signed:
+                args += ", signed=True"
+            lines.append(f"    {field_name} = BitField({args})")
         lines.append("")
         lines.append("")
     return lines
@@ -130,7 +171,7 @@ def generate() -> str:
         "",
         "from llvmlite import ir",
         "",
-        "from ..codegen import BoundStructView, StructField, StructHandle",
+        "from ..codegen import BitField, BoundStructView, StructField, StructHandle",
         "",
         "I8 = ir.IntType(8)",
         "I16 = ir.IntType(16)",

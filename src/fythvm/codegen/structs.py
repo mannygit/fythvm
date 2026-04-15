@@ -31,6 +31,93 @@ class BoundStructField:
     def bind(self, handle: "StructHandle") -> "BoundStructView":
         return handle.bind(self.view.builder, self.ptr())
 
+    def integer_type(self) -> ir.IntType:
+        pointee = self.ptr().type.pointee
+        if not isinstance(pointee, ir.IntType):
+            raise TypeError(f"{self.field_name} is not backed by an integer field: {pointee!r}")
+        return pointee
+
+
+@dataclass(frozen=True)
+class BoundBitField:
+    """One logical bitfield view over a physical integer storage field."""
+
+    view: "BoundStructView"
+    storage_index: int
+    field_name: str
+    bit_offset: int
+    bit_width: int
+    signed: bool = False
+
+    def storage(self) -> BoundStructField:
+        return BoundStructField(
+            self.view,
+            self.storage_index,
+            f"{self.field_name}_storage",
+        )
+
+    def load(self, *, name: str | None = None) -> ir.Value:
+        builder = self.view.builder
+        storage_field = self.storage()
+        storage_value = storage_field.load(name=f"{self.field_name}_storage")
+        storage_type = storage_field.integer_type()
+        field_type = ir.IntType(self.bit_width)
+
+        if self.bit_offset:
+            shifted = builder.lshr(
+                storage_value,
+                storage_type(self.bit_offset),
+                name=f"{self.field_name}_shifted",
+            )
+        else:
+            shifted = storage_value
+
+        if self.bit_width == storage_type.width:
+            value = shifted
+        else:
+            value = builder.trunc(shifted, field_type, name=name or self.field_name)
+        return value
+
+    def store(self, value: ir.Value) -> None:
+        builder = self.view.builder
+        storage_field = self.storage()
+        storage_type = storage_field.integer_type()
+        field_type = ir.IntType(self.bit_width)
+
+        field_value = value
+        if not isinstance(field_value.type, ir.IntType):
+            raise TypeError(f"{self.field_name} expects an integer value, got {field_value.type!r}")
+        if field_value.type.width > self.bit_width:
+            field_value = builder.trunc(field_value, field_type, name=f"{self.field_name}_bits")
+        elif field_value.type.width < self.bit_width:
+            field_value = builder.zext(field_value, field_type, name=f"{self.field_name}_bits")
+
+        widened = field_value
+        if widened.type.width < storage_type.width:
+            widened = builder.zext(widened, storage_type, name=f"{self.field_name}_storage_bits")
+        elif widened.type.width > storage_type.width:
+            widened = builder.trunc(widened, storage_type, name=f"{self.field_name}_storage_bits")
+
+        if self.bit_offset:
+            shifted = builder.shl(
+                widened,
+                storage_type(self.bit_offset),
+                name=f"{self.field_name}_positioned",
+            )
+        else:
+            shifted = widened
+
+        mask_value = ((1 << self.bit_width) - 1) << self.bit_offset
+        mask = storage_type(mask_value)
+        old_storage = storage_field.load(name=f"{self.field_name}_old_storage")
+        cleared = builder.and_(
+            old_storage,
+            storage_type(~mask_value & ((1 << storage_type.width) - 1)),
+            name=f"{self.field_name}_cleared",
+        )
+        masked = builder.and_(shifted, mask, name=f"{self.field_name}_masked")
+        storage_field.store(builder.or_(cleared, masked, name=f"{self.field_name}_updated"))
+
 
 class StructField:
     """Descriptor sugar for a fixed field index on a bound struct view."""
@@ -46,6 +133,32 @@ class StructField:
         if instance is None:
             return self
         return BoundStructField(instance, self.index, self.field_name)
+
+
+class BitField:
+    """Descriptor sugar for one logical bitfield inside a storage field."""
+
+    def __init__(self, storage_index: int, bit_offset: int, bit_width: int, *, signed: bool = False):
+        self.storage_index = storage_index
+        self.bit_offset = bit_offset
+        self.bit_width = bit_width
+        self.signed = signed
+        self.field_name = f"bitfield_{storage_index:02d}_{bit_offset:02d}_{bit_width:02d}"
+
+    def __set_name__(self, owner: type["BoundStructView"], name: str) -> None:
+        self.field_name = name
+
+    def __get__(self, instance: "BoundStructView" | None, owner: type["BoundStructView"]):
+        if instance is None:
+            return self
+        return BoundBitField(
+            instance,
+            self.storage_index,
+            self.field_name,
+            self.bit_offset,
+            self.bit_width,
+            self.signed,
+        )
 
 
 class BoundStructView:
