@@ -252,25 +252,20 @@ class CalculatorEmitter:
         if spec.operation is None:
             raise ValueError(f"binary opcode spec {spec.name!r} is missing an operation")
 
-        apply_block = self.function.append_basic_block(f"{spec.name}.apply")
         current_sp = self.stack.load_sp(builder)
         enough_items = builder.icmp_unsigned("<=", current_sp, I32(STACK_SIZE - 2), name=f"{spec.name}_enough")
-        if spec.zero_sensitive:
-            zero_check_block = self.function.append_basic_block(f"{spec.name}.zero_check")
-            builder.cbranch(enough_items, zero_check_block, self.underflow_block)
+        underflow_ok_block = self.function.append_basic_block(f"{spec.name}.ok")
+        builder.cbranch(enough_items, underflow_ok_block, self.underflow_block)
 
-            builder.position_at_end(zero_check_block)
-            rhs = builder.load(self.stack.slot(builder, current_sp, name=f"{spec.name}_rhs_ptr"), name="rhs")
-            rhs_is_zero = builder.icmp_signed("==", rhs, I16(0), name=f"{spec.name}_rhs_is_zero")
-            builder.cbranch(rhs_is_zero, self.divzero_block, apply_block)
-        else:
-            builder.cbranch(enough_items, apply_block, self.underflow_block)
-
-        builder.position_at_end(apply_block)
-        current_sp = self.stack.load_sp(builder)
+        builder.position_at_end(underflow_ok_block)
         rhs = builder.load(self.stack.slot(builder, current_sp, name=f"{spec.name}_rhs_ptr"), name="rhs")
         lhs_index = builder.add(current_sp, I32(1), name="lhs_index")
         lhs = builder.load(self.stack.slot(builder, lhs_index, name=f"{spec.name}_lhs_ptr"), name="lhs")
+        if spec.zero_sensitive:
+            rhs_is_zero = builder.icmp_signed("==", rhs, I16(0), name=f"{spec.name}_rhs_is_zero")
+            nonzero_block = self.function.append_basic_block(f"{spec.name}.nonzero")
+            builder.cbranch(rhs_is_zero, self.divzero_block, nonzero_block)
+            builder.position_at_end(nonzero_block)
         result = spec.operation(builder, lhs, rhs)
         builder.store(result, self.stack.slot(builder, lhs_index, name=f"{spec.name}_result_ptr"))
         self.stack.store_sp(builder, lhs_index)
