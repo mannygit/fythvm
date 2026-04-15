@@ -7,10 +7,13 @@ import ctypes
 from llvmlite import binding, ir
 
 from fythvm.codegen import (
+    BoundStructView,
     ContextStructStackAccess,
     Join,
     ParamLoop,
     SharedExit,
+    StructField,
+    StructHandle,
     SwitchDispatcher,
     compile_ir_module,
     configure_llvm,
@@ -28,6 +31,16 @@ class TinyStackContext(ctypes.Structure):
         ("stack", ctypes.c_int16 * 4),
         ("sp", ctypes.c_int32),
     ]
+
+
+class PairView(BoundStructView):
+    first = StructField(0)
+    second = StructField(1)
+
+
+class OuterView(BoundStructView):
+    pair = StructField(0)
+    total = StructField(1)
 
 
 def test_shared_exit_merges_status_and_value() -> None:
@@ -98,6 +111,47 @@ def test_join_treats_merge_block_as_block_parameters() -> None:
     join_fn = ctypes.CFUNCTYPE(ctypes.c_longlong, ctypes.c_bool)(compiled.function_address("join_fn"))
     assert join_fn(True) == 30
     assert join_fn(False) == 300
+
+
+def test_struct_handle_supports_named_field_access() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="struct_handle_fields")
+    module.triple = binding.get_default_triple()
+    pair = StructHandle.literal("pair", I32, I64, view_type=PairView)
+    pair_global = pair.define_global(module, "pair_data", I32(7), I64(33))
+
+    fn = ir.Function(module, ir.FunctionType(I64, []), name="sum_pair")
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    view = pair.bind(builder, pair_global)
+    total = builder.add(builder.zext(view.first.load(), I64), view.second.load(), name="sum")
+    builder.ret(total)
+
+    compiled = compile_ir_module(module)
+    sum_pair = ctypes.CFUNCTYPE(ctypes.c_longlong)(compiled.function_address("sum_pair"))
+    assert sum_pair() == 40
+
+
+def test_bound_struct_field_can_bind_nested_struct_view() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="nested_struct_handle")
+    module.triple = binding.get_default_triple()
+    pair = StructHandle.identified("pair", "TestPair", I32, I32, view_type=PairView)
+    outer = StructHandle.literal("outer", pair.ir_type, I32, view_type=OuterView)
+    outer_global = outer.define_global(module, "outer_data", pair.constant(I32(4), I32(5)), I32(20))
+
+    fn = ir.Function(module, ir.FunctionType(I64, []), name="sum_nested")
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    view = outer.bind(builder, outer_global)
+    pair_view = view.pair.bind(pair)
+    subtotal = builder.add(pair_view.first.load(), pair_view.second.load(), name="pair_sum")
+    total = builder.add(subtotal, view.total.load(), name="total")
+    builder.ret(builder.zext(total, I64))
+
+    compiled = compile_ir_module(module)
+    sum_nested = ctypes.CFUNCTYPE(ctypes.c_longlong)(compiled.function_address("sum_nested"))
+    assert sum_nested() == 29
 
 
 def test_param_loop_carries_one_value_through_loop_header() -> None:

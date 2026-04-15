@@ -1,0 +1,7 @@
+slug = "ctypes-composite-runtime-layout"
+title = "ctypes Composite Runtime Layout"
+summary = "Show how the fixed runtime records from ~/fyth map into nested ctypes structs, arrays, pointers, and promoted llvmlite struct views."
+status = "stable"
+tags = ["ctypes", "structs", "runtime-layout", "llvmlite"]
+run = "uv run python explorations/lab/ctypes-composite-runtime-layout/run.py"
+agent_authored = true

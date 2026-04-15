@@ -9,4 +9,6 @@ def test_import() -> None:
 def test_promoted_modules_import() -> None:
     """Verify promoted package modules can be imported."""
     import fythvm.codegen  # noqa: F401
+    import fythvm.dictionary  # noqa: F401
+    import fythvm.dictionary.layout  # noqa: F401
     import fythvm.rpn16  # noqa: F401

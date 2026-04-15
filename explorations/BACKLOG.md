@@ -76,6 +76,45 @@ None.
 
 ## Done
 
+- `ctypes-composite-runtime-layout`
+  - Title: ctypes composite runtime layout
+  - Goal: Show how the fixed runtime records from `~/fyth` map into nested ctypes
+    structs, arrays, pointers, and promoted llvmlite struct views.
+  - Why it matters: The fixed-record half of the old runtime is a clean fit for
+    promoted struct helpers, but that relationship needed to be demonstrated
+    explicitly.
+  - Success signal: The lab prints the concrete ctypes layouts, emitted IR for raw and
+    Pythonic nested access, and live proof against real ctypes instances.
+  - Takeaway: Fixed runtime records are a good fit for promoted StructHandle views;
+    nested structs, arrays, and pointers still reduce to ordinary field and element
+    access once the layout is explicit.
+  - Lab: `explorations/lab/ctypes-composite-runtime-layout/`
+
+- `variable-word-entry-layout`
+  - Title: Variable word entry layout
+  - Goal: Show how a dictionary word uses variable-size name bytes before a fixed word
+    prefix and derives CFA/DFA cells from the aligned name blob.
+  - Why it matters: The real dictionary entry is not a plain fixed struct, so the
+    variable-layout protocol needs to be preserved directly.
+  - Success signal: The lab prints raw offset reconstruction, the corresponding
+    Pythonic word view, lookup traces, and a memory snapshot.
+  - Takeaway: Treat the word entry as a linear-memory protocol: variable name blob
+    first, fixed prefix second, and explicit byte-to-cell transitions at the CFA/DFA
+    boundary.
+  - Lab: `explorations/lab/variable-word-entry-layout/`
+
+- `ctypes-dictionary-runtime`
+  - Title: ctypes dictionary runtime
+  - Goal: Demonstrate the integrated pure Python + ctypes dictionary runtime for
+    debug-visible word creation, traversal, and lookup.
+  - Why it matters: The project needed a visibility-friendly runtime prototype before
+    any execution machinery is layered on top.
+  - Success signal: The lab prints the actual Python classes, live traversal and
+    lookup behavior, and the runtime debug snapshot.
+  - Takeaway: A pure Python + ctypes dictionary is a useful long-lived debug runtime
+    as long as it preserves the real layout and lookup rules.
+  - Lab: `explorations/lab/ctypes-dictionary-runtime/`
+
 - `llvmlite-minimal-jit-pipeline`
   - Title: Minimal llvmlite JIT pipeline
   - Goal: Capture the smallest complete path from IR construction to executable code.

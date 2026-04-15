@@ -1,0 +1,7 @@
+slug = "variable-word-entry-layout"
+title = "Variable Word Entry Layout"
+summary = "Show how a Forth-style word entry uses variable-size name bytes before a fixed prefix and derives CFA/DFA cells from the aligned name blob."
+status = "stable"
+tags = ["dictionary", "layout", "ctypes", "memory-protocol"]
+run = "uv run python explorations/lab/variable-word-entry-layout/run.py"
+agent_authored = true

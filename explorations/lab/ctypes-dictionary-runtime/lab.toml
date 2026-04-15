@@ -1,0 +1,7 @@
+slug = "ctypes-dictionary-runtime"
+title = "ctypes Dictionary Runtime"
+summary = "Demonstrate the integrated pure Python + ctypes dictionary runtime for debug-visible word creation, traversal, and lookup."
+status = "stable"
+tags = ["dictionary", "ctypes", "runtime", "debugging"]
+run = "uv run python explorations/lab/ctypes-dictionary-runtime/run.py"
+agent_authored = true
