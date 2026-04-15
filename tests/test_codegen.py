@@ -15,6 +15,7 @@ from fythvm.codegen import (
     SharedExit,
     StructField,
     StructHandle,
+    StructViewStackAccess,
     SwitchDispatcher,
     compile_ir_module,
     configure_llvm,
@@ -33,6 +34,11 @@ class TinyStackContext(ctypes.Structure):
         ("stack", ctypes.c_int16 * 4),
         ("sp", ctypes.c_int32),
     ]
+
+
+class TinyStackView(BoundStructView):
+    stack = StructField(0)
+    sp = StructField(1)
 
 
 class PairView(BoundStructView):
@@ -379,15 +385,17 @@ def test_context_struct_stack_access_reaches_stack_and_sp_fields() -> None:
     assert peek(ctypes.byref(ctx)) == 12
 
 
-def test_context_struct_stack_access_supports_reset_push_pop2_and_peek() -> None:
+def test_struct_view_stack_access_supports_reset_push_pop2_and_peek() -> None:
     configure_llvm()
 
-    ctx_type = ir.LiteralStructType([ir.ArrayType(I16, 4), I32])
+    ctx_handle = StructHandle.literal("tiny stack context", ir.ArrayType(I16, 4), I32, view_type=TinyStackView)
     module = ir.Module(name="stack_ops_test")
     module.triple = binding.get_default_triple()
 
-    apply_fn = ir.Function(module, ir.FunctionType(I16, [ctx_type.as_pointer(), I16, I16]), name="apply_add")
-    stack = ContextStructStackAccess(apply_fn.args[0]).bind(ir.IRBuilder(apply_fn.append_basic_block("entry")))
+    apply_fn = ir.Function(module, ir.FunctionType(I16, [ctx_handle.ir_type.as_pointer(), I16, I16]), name="apply_add")
+    builder = ir.IRBuilder(apply_fn.append_basic_block("entry"))
+    ctx = ctx_handle.bind(builder, apply_fn.args[0])
+    stack = StructViewStackAccess(ctx).bind(builder)
     stack.reset(I32(4))
     stack.push(apply_fn.args[1], name="push_lhs_sp")
     stack.push(apply_fn.args[2], name="push_rhs_sp")
@@ -409,15 +417,17 @@ def test_context_struct_stack_access_supports_reset_push_pop2_and_peek() -> None
     assert ctx.stack[3] == 12
 
 
-def test_context_struct_stack_access_shape_predicates_follow_stack_capacity() -> None:
+def test_struct_view_stack_access_shape_predicates_follow_stack_capacity() -> None:
     configure_llvm()
 
-    ctx_type = ir.LiteralStructType([ir.ArrayType(I16, 4), I32])
+    ctx_handle = StructHandle.literal("tiny stack context", ir.ArrayType(I16, 4), I32, view_type=TinyStackView)
     module = ir.Module(name="stack_shape_predicates")
     module.triple = binding.get_default_triple()
 
-    encode_fn = ir.Function(module, ir.FunctionType(I32, [ctx_type.as_pointer()]), name="encode")
-    stack = ContextStructStackAccess(encode_fn.args[0]).bind(ir.IRBuilder(encode_fn.append_basic_block("entry")))
+    encode_fn = ir.Function(module, ir.FunctionType(I32, [ctx_handle.ir_type.as_pointer()]), name="encode")
+    builder = ir.IRBuilder(encode_fn.append_basic_block("entry"))
+    ctx = ctx_handle.bind(builder, encode_fn.args[0])
+    stack = StructViewStackAccess(ctx).bind(builder)
 
     has_room = stack.has_room(name="has_room")
     has_two = stack.has_at_least(2, name="has_two")

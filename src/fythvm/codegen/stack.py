@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from llvmlite import ir
 
+from .structs import BoundStructField, BoundStructView
 from .types import I32
 
 
@@ -143,4 +144,41 @@ class ContextStructStackAccess(AbstractStackAccess):
 
     def stack_capacity(self, builder: ir.IRBuilder) -> int:
         stack_type = self.ctx_ptr.type.pointee.elements[self.stack_field_index]
+        return stack_type.count
+
+
+class StructViewStackAccess(AbstractStackAccess):
+    """Derive stack pointers from named fields on a bound struct view."""
+
+    def __init__(
+        self,
+        view: BoundStructView,
+        *,
+        stack_field_name: str = "stack",
+        sp_field_name: str = "sp",
+    ):
+        self.view = view
+        self.stack_field = getattr(view, stack_field_name)
+        self.sp_field = getattr(view, sp_field_name)
+        if not isinstance(self.stack_field, BoundStructField):
+            raise TypeError(f"{stack_field_name!r} is not a struct field on {type(view).__name__}")
+        if not isinstance(self.sp_field, BoundStructField):
+            raise TypeError(f"{sp_field_name!r} is not a struct field on {type(view).__name__}")
+
+    def _ensure_builder(self, builder: ir.IRBuilder) -> None:
+        if builder is not self.view.builder:
+            raise ValueError("StructViewStackAccess must be used with the builder bound to its context view")
+
+    def load_stack_base(self, builder: ir.IRBuilder) -> ir.Value:
+        self._ensure_builder(builder)
+        stack_array_ptr = self.stack_field.ptr(name="stack_array_ptr")
+        return builder.gep(stack_array_ptr, [I32(0), I32(0)], inbounds=True, name="stack_base")
+
+    def load_sp_ptr(self, builder: ir.IRBuilder) -> ir.Value:
+        self._ensure_builder(builder)
+        return self.sp_field.ptr(name="sp_ptr")
+
+    def stack_capacity(self, builder: ir.IRBuilder) -> int:
+        self._ensure_builder(builder)
+        stack_type = self.stack_field.ptr().type.pointee
         return stack_type.count

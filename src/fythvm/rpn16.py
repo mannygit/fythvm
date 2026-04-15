@@ -13,10 +13,13 @@ from .codegen import (
     I16,
     I16_PTR,
     I32,
-    ContextStructStackAccess,
+    BoundStructView,
     FetchedCell,
     ParamLoop,
     SharedExit,
+    StructField,
+    StructHandle,
+    StructViewStackAccess,
     SwitchDispatcher,
     compile_ir_module,
     configure_llvm,
@@ -160,6 +163,24 @@ def compile_calculator() -> CompiledCalculator:
 
 # Private lowering implementation
 
+
+# These layout-projection pieces are the sort of mechanical output a schema/layout
+# generator would emit elsewhere in the codebase. They stay hand-authored here
+# because the calculator context is tiny and local to this module.
+class _CalcContextView(BoundStructView):
+    stack = StructField(0)
+    sp = StructField(1)
+
+
+def _calc_context_handle() -> StructHandle:
+    return StructHandle.identified(
+        "calc context",
+        "Rpn16CalcContext",
+        ir.ArrayType(I16, STACK_SIZE),
+        I32,
+        view_type=_CalcContextView,
+    )
+
 OP_ADD = TAG_MASK | ord("+")
 OP_SUB = TAG_MASK | ord("-")
 OP_MUL = TAG_MASK | ord("*")
@@ -236,18 +257,18 @@ class CalculatorEmitter:
     """Emit the concrete RPN evaluator using promoted helper pieces."""
 
     def __init__(self, module: ir.Module, name: str):
-        self.ctx_type = ir.LiteralStructType([ir.ArrayType(I16, STACK_SIZE), I32])
+        ctx_handle = _calc_context_handle()
         fn_ty = ir.FunctionType(
-            I32, [I16_PTR, I32, self.ctx_type.as_pointer(), I16_PTR]
+            I32, [I16_PTR, I32, ctx_handle.ir_type.as_pointer(), I16_PTR]
         )
         self.function = ir.Function(module, fn_ty, name=name)
         self.cells_ptr, self.cell_count, self.ctx_ptr, self.out_result_ptr = (
             self.function.args
         )
-        self.stack = ContextStructStackAccess(self.ctx_ptr)
         entry_block = self.function.append_basic_block("entry")
         self.builder = ir.IRBuilder(entry_block)
-        self.stack_ops = self.stack.bind(self.builder)
+        ctx = ctx_handle.bind(self.builder, self.ctx_ptr)
+        self.stack_ops = StructViewStackAccess(ctx).bind(self.builder)
         self.loop = ParamLoop(self.builder, "eval", [("ip", I32)])
         self.literal_check_block = self.function.append_basic_block("literal.check")
         self.opcode_block = self.function.append_basic_block("opcode.dispatch")

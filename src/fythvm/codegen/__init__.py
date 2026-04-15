@@ -11,7 +11,13 @@ from .joins import Join
 from .llvm import CompiledIRModule, compile_ir_module, configure_llvm
 from .dispatch import SwitchCaseSpec, SwitchDispatcher
 from .loops import ParamLoop
-from .stack import AbstractStackAccess, BoundStackAccess, ContextStructStackAccess, PoppedPair
+from .stack import (
+    AbstractStackAccess,
+    BoundStackAccess,
+    ContextStructStackAccess,
+    PoppedPair,
+    StructViewStackAccess,
+)
 from .structs import BitField, BoundBitField, BoundStructField, BoundStructView, StructField, StructHandle
 from .types import I16, I16_PTR, I32
 
@@ -34,6 +40,7 @@ __all__ = [
     "SharedExit",
     "StructField",
     "StructHandle",
+    "StructViewStackAccess",
     "SwitchCaseSpec",
     "SwitchDispatcher",
     "compile_ir_module",
