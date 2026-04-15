@@ -60,6 +60,11 @@ The named-state variant shows why this matters once the merged values start look
 like machine or interpreter state: `state.x`, `state.y`, `state.tos` are still just
 block-entry values, but the host-side code can talk about them as one environment.
 
+The refined Pythonic step is `branch_from_here(...)`: predecessor code computes an
+outgoing environment and transfers control to the successor carrying that state, rather
+than manually capturing the predecessor block, branching, and then calling
+`add_incoming(...)` as a separate action.
+
 ## Pattern / Takeaway
 
 The general pattern is not "a ternary with a phi." The general pattern is: blocks
@@ -77,6 +82,10 @@ That gives one reusable model for several shapes:
 The tuple-style `Join` helper is the canonical abstraction because it stays close to
 raw SSA. A named-state wrapper becomes useful once the merged values represent a real
 environment such as interpreter state.
+
+The next layer above `add_incoming(...)` is edge/state transfer. The useful semantic
+operation is "branch to this successor carrying this environment," and
+`branch_from_here(...)` expresses exactly that without turning the lab into a CFG DSL.
 
 ## Non-Obvious Failure Modes
 
@@ -100,6 +109,11 @@ just the block that "morally" produced the value earlier in the CFG.
 Finally, a named-state wrapper is only a readability layer. It should not hide that the
 underlying lowering is still one phi per field.
 
+It is also easy to stop one abstraction layer too early. `join.add_incoming(...)` is a
+useful lowering primitive, but it is not yet the semantic operation most control-flow
+code wants to express. The more natural unit is edge transfer: compute outgoing state,
+then branch carrying that state.
+
 ## Apply When
 
 Use this pattern when:
@@ -121,10 +135,14 @@ clearer.
 Do not let the Pythonic helper become more magical than the CFG it lowers. The raw
 tuple join should remain easy to reconstruct from the lab output.
 
+Do not jump straight to a free-form `goto(block, state)` DSL in this lab. That is the
+next abstraction pressure point, but this lab keeps the successor join explicit on the
+helper itself.
+
 ## Next Questions
 
 - When should loop-header phis be taught directly as block parameters in their own lab?
 - What is the cleanest named-state surface once the merged fields look like Forth VM
   state such as `ip`, `sp`, `rp`, and cached `tos`?
-- Which phi-heavy existing labs are worth rewriting to use a shared local `Join`
-  helper, and which are clearer left raw?
+- When should `branch_from_here(...)` be propagated into other phi/state-heavy labs,
+  and which ones are clearer left raw?

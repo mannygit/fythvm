@@ -39,18 +39,36 @@ class Join:
         self.merge_block = merge_block
         self.specs = specs
         self._phis: tuple[ir.PhiInstr, ...] = ()
+        self._pending_incoming: list[tuple[ir.Block, tuple[ir.Value, ...]]] = []
 
     def __enter__(self) -> tuple[ir.PhiInstr, ...]:
         self.builder.position_at_end(self.merge_block)
         self._phis = tuple(self.builder.phi(ty, name=name) for name, ty in self.specs)
+        for pred_block, values in self._pending_incoming:
+            self._add_incoming_now(pred_block, *values)
         return self._phis
 
-    def add_incoming(self, pred_block: ir.Block, *values: ir.Value) -> None:
+    def _add_incoming_now(self, pred_block: ir.Block, *values: ir.Value) -> None:
         if len(values) != len(self._phis):
             raise ValueError("incoming value count does not match join arity")
 
         for phi, value in zip(self._phis, values, strict=True):
             phi.add_incoming(value, pred_block)
+
+    def add_incoming(self, pred_block: ir.Block, *values: ir.Value) -> None:
+        if len(values) != len(self.specs):
+            raise ValueError("incoming value count does not match join arity")
+
+        if self._phis:
+            self._add_incoming_now(pred_block, *values)
+            return
+
+        self._pending_incoming.append((pred_block, tuple(values)))
+
+    def branch_from_here(self, builder: ir.IRBuilder, *values: ir.Value) -> None:
+        pred_block = builder.basic_block
+        builder.branch(self.merge_block)
+        self.add_incoming(pred_block, *values)
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return False
@@ -70,6 +88,9 @@ class StateJoin:
 
     def add_incoming(self, pred_block: ir.Block, state: MachineState) -> None:
         self.join.add_incoming(pred_block, state.x, state.y, state.tos)
+
+    def branch_from_here(self, builder: ir.IRBuilder, state: MachineState) -> None:
+        self.join.branch_from_here(builder, state.x, state.y, state.tos)
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return self.join.__exit__(exc_type, exc, tb)
@@ -171,22 +192,18 @@ def _emit_zero_live_in_join_pythonic(module: ir.Module) -> None:
     is_even = builder.icmp_unsigned("==", builder.and_(func.args[0], ir.Constant(I64, 1)), ir.Constant(I64, 0))
     builder.cbranch(is_even, then_block, else_block)
 
+    join = Join(builder, merge_block, [])
+
     with in_block(builder, then_block):
-        then_pred = builder.basic_block
-        builder.branch(merge_block)
+        join.branch_from_here(builder)
 
     with in_block(builder, else_block):
-        else_pred = builder.basic_block
-        builder.branch(merge_block)
+        join.branch_from_here(builder)
 
-    join = Join(builder, merge_block, [])
     with join as merged_values:
         assert not merged_values
         result = builder.add(func.args[0], ir.Constant(I64, 100), name="result")
         builder.ret(result)
-
-    join.add_incoming(then_pred)
-    join.add_incoming(else_pred)
 
 
 def _emit_tuple_join_pythonic(module: ir.Module) -> None:
@@ -201,27 +218,23 @@ def _emit_tuple_join_pythonic(module: ir.Module) -> None:
     is_non_negative = builder.icmp_signed(">=", func.args[0], ir.Constant(I64, 0), name="is_non_negative")
     builder.cbranch(is_non_negative, then_block, else_block)
 
+    join = Join(builder, merge_block, [("x", I64), ("y", I64), ("tos", I64)])
+
     with in_block(builder, then_block):
         x_then = builder.add(func.args[0], ir.Constant(I64, 1), name="x_then")
         y_then = builder.mul(func.args[1], ir.Constant(I64, 2), name="y_then")
         tos_then = builder.add(func.args[2], ir.Constant(I64, 10), name="tos_then")
-        then_pred = builder.basic_block
-        builder.branch(merge_block)
+        join.branch_from_here(builder, x_then, y_then, tos_then)
 
     with in_block(builder, else_block):
         x_else = builder.sub(func.args[0], ir.Constant(I64, 1), name="x_else")
         y_else = builder.mul(func.args[1], ir.Constant(I64, 3), name="y_else")
         tos_else = builder.sub(func.args[2], ir.Constant(I64, 10), name="tos_else")
-        else_pred = builder.basic_block
-        builder.branch(merge_block)
+        join.branch_from_here(builder, x_else, y_else, tos_else)
 
-    join = Join(builder, merge_block, [("x", I64), ("y", I64), ("tos", I64)])
     with join as (x, y, tos):
         total = builder.add(builder.add(x, y, name="xy_sum"), tos, name="total")
         builder.ret(total)
-
-    join.add_incoming(then_pred, x_then, y_then, tos_then)
-    join.add_incoming(else_pred, x_else, y_else, tos_else)
 
 
 def _emit_state_join_pythonic(module: ir.Module) -> None:
@@ -236,14 +249,15 @@ def _emit_state_join_pythonic(module: ir.Module) -> None:
     is_non_negative = builder.icmp_signed(">=", func.args[0], ir.Constant(I64, 0), name="is_non_negative")
     builder.cbranch(is_non_negative, then_block, else_block)
 
+    join = StateJoin(builder, merge_block)
+
     with in_block(builder, then_block):
         then_state = MachineState(
             x=builder.add(func.args[0], ir.Constant(I64, 1), name="x_then"),
             y=builder.mul(func.args[1], ir.Constant(I64, 2), name="y_then"),
             tos=builder.add(func.args[2], ir.Constant(I64, 10), name="tos_then"),
         )
-        then_pred = builder.basic_block
-        builder.branch(merge_block)
+        join.branch_from_here(builder, then_state)
 
     with in_block(builder, else_block):
         else_state = MachineState(
@@ -251,16 +265,11 @@ def _emit_state_join_pythonic(module: ir.Module) -> None:
             y=builder.mul(func.args[1], ir.Constant(I64, 3), name="y_else"),
             tos=builder.sub(func.args[2], ir.Constant(I64, 10), name="tos_else"),
         )
-        else_pred = builder.basic_block
-        builder.branch(merge_block)
+        join.branch_from_here(builder, else_state)
 
-    join = StateJoin(builder, merge_block)
     with join as state:
         total = builder.add(builder.add(state.x, state.y, name="xy_sum"), state.tos, name="total")
         builder.ret(total)
-
-    join.add_incoming(then_pred, then_state)
-    join.add_incoming(else_pred, else_state)
 
 
 def build_module() -> ir.Module:
@@ -355,6 +364,7 @@ def main() -> None:
     print("== What To Notice ==")
     print("The tuple join is the source of truth: each predecessor computes one outgoing environment, and the merge block rebuilds that environment with one phi per live-in.")
     print("Join treats the merge block as if it had block parameters: predecessors contribute edge values, and the block body consumes merged entry values.")
+    print("Join.branch_from_here() is the next semantic step: predecessors do not just add phi inputs, they transfer control to the successor carrying an outgoing environment.")
     print("StateJoin does not change the lowering. It only lets the same block-entry values read like one named environment instead of one naked tuple.")
 
 
