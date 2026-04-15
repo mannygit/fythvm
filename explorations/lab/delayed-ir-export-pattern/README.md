@@ -2,8 +2,8 @@
 
 ## Question
 
-How do you stage llvmlite exports so declarations arrive before bodies, without a
-global registry?
+How do you stage llvmlite exports so declarations arrive before bodies, and later
+reopen an already declared function by name safely without a global registry?
 
 ## Setup
 
@@ -14,8 +14,9 @@ This lab builds a small module-scoped export plan two ways:
 
 Phase 1 declares the exported symbols and signatures. Phase 2 fills in the function
 bodies later, even if a body needs to call another export whose definition has not been
-emitted yet. The raw version is the source of truth; the Pythonic version is the
-readability layer.
+emitted yet. A separate reopen-by-name step looks up a previously declared function,
+verifies the type, and then uses that declaration during emission. The raw version is
+the source of truth; the Pythonic version is the readability layer.
 
 The host owns the plan object, not a process-wide registry. Finalization is explicit:
 the host verifies the module, creates the execution engine, resolves function
@@ -41,21 +42,25 @@ for the Pythonic plan:
 
 - declaration order for the module exports
 - definition order, including a body emitted before its callee body
+- reopen-by-name lookup for a previously declared function, with type verification
 - the final LLVM IR after both phases are complete
 - runtime calls that only become possible after explicit finalization
 - error messages for duplicate names, calling before finalization, and finalizing
   with a missing body
+- error messages for reopening with the wrong type
 - the same export graph in a raw form and in a small plan object with a body-staging
   context manager
 
 That makes the ordering rules visible instead of implicit. The Pythonic version keeps
-the call graph and phase ordering visible while removing some of the manual book-keeping.
+the call graph, phase ordering, and reopen-by-name semantics visible while removing
+some of the manual book-keeping.
 
 ## Pattern / Takeaway
 
 Use a host-owned export plan per module when bodies need to be delayed. Declare the
 symbol and signature first, define bodies later, and make finalization the one explicit
-step that turns IR into something callable.
+step that turns IR into something callable. If a later emitter needs an existing
+declaration, reopen it by name and verify its type before using it.
 
 This keeps dependency order local to the module and avoids ambient registries or hidden
 startup side effects. The raw version should remain the correctness reference even if
@@ -64,11 +69,15 @@ the plan object grows more magical later.
 ## Non-Obvious Failure Modes
 
 - A declaration is not a callable definition. It only reserves the symbol and type.
+- Reopening by name is not redeclaring. It should resolve the already declared function
+  and verify its type before emitting a call.
 - Duplicate names are a real bug, not a convenience. A module-scoped plan should fail
   fast instead of silently shadowing or reusing a symbol.
 - Forgetting to finalize means you still have IR, but no live callable export.
 - Defining a body that depends on another export is safe only if the callee was already
   declared.
+- Reopening with the wrong type is a mental-model error: the name exists, but the
+  declaration you have is not the one the emitter expects.
 - Ambient registries make the dependency graph feel easier at first, but they hide where
   exported symbols come from and make module-local ordering harder to reason about.
 - The Pythonic `define()` context manager must only mark the export defined after a clean
@@ -80,6 +89,7 @@ Use this pattern when:
 
 - a module has several exports that reference each other
 - you need to assemble bodies in stages instead of all at once
+- a later emitter needs to reopen a declaration by name and verify the type before use
 - you want export availability to be explicit and testable
 - the host should control when IR becomes callable
 - you want the raw state transitions as a baseline and a plan object as a readable layer

@@ -1,8 +1,8 @@
 slug = "metaprogramming-ir-builders"
 title = "Metaprogramming IR builders"
-summary = "Compare a raw llvmlite branch/phi baseline with a tiny context-managed helper that keeps the CFG visible."
+summary = "Compare raw llvmlite branch/phi and icmp/select baselines with tiny helpers that keep the CFG and lowering shape visible."
 status = "draft"
-tags = ["llvmlite", "metaprogramming", "ir", "helpers"]
+tags = ["llvmlite", "metaprogramming", "ir", "helpers", "select", "comparison"]
 run = "uv run python explorations/lab/metaprogramming-ir-builders/run.py"
 agent_authored = true
 safe_to_smoke = false

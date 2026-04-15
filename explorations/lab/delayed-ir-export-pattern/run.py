@@ -12,6 +12,7 @@ from llvmlite import binding, ir
 
 I64 = ir.IntType(64)
 CALLABLE_I64_TO_I64 = ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_int64)
+EXPORT_SIGNATURE = ir.FunctionType(I64, [I64])
 
 
 def configure_llvm() -> None:
@@ -44,6 +45,7 @@ def make_raw_plan(module_name: str) -> dict[str, object]:
         "finalized": False,
         "engine": None,
         "callables": {},
+        "reopen_log": [],
     }
 
 
@@ -72,6 +74,31 @@ def raw_function(plan: dict[str, object], name: str) -> ir.Function:
     exports = plan["exports"]
     assert isinstance(exports, dict)
     return exports[name]["function"]  # type: ignore[index]
+
+
+def raw_reopen(plan: dict[str, object], name: str, function_type: ir.FunctionType) -> ir.Function:
+    exports = plan["exports"]
+    assert isinstance(exports, dict)
+    if name not in exports:
+        raise KeyError(f"cannot reopen undeclared export: {name}")
+
+    module = plan["module"]
+    assert isinstance(module, ir.Module)
+    try:
+        function = module.globals[name]
+    except KeyError as exc:
+        raise KeyError(f"cannot reopen missing function: {name}") from exc
+    if not isinstance(function, ir.Function):  # pragma: no cover - defensive
+        raise TypeError(f"reopened symbol is not a function: {name}")
+    if function.function_type != function_type:
+        raise TypeError(
+            f"type mismatch reopening {name}: expected {function_type}, found {function.function_type}"
+        )
+
+    reopen_log = plan["reopen_log"]
+    assert isinstance(reopen_log, list)
+    reopen_log.append(name)
+    return function
 
 
 def raw_define(
@@ -158,16 +185,15 @@ def raw_emit_offset_then_scale(builder: ir.IRBuilder, plan: dict[str, object], f
 
 
 def raw_emit_pipeline_entry(builder: ir.IRBuilder, plan: dict[str, object], function: ir.Function) -> None:
-    helper = raw_function(plan, "offset_then_scale")
+    helper = raw_reopen(plan, "offset_then_scale", EXPORT_SIGNATURE)
     helper_result = builder.call(helper, [function.args[0]], name="helper_result")
     builder.ret(builder.add(helper_result, ir.Constant(I64, 1), name="final_result"))
 
 
 def build_raw_success_plan() -> dict[str, object]:
     plan = make_raw_plan("delayed_ir_export_pattern_raw")
-    signature = ir.FunctionType(I64, [I64])
-    raw_declare(plan, "offset_then_scale", signature)
-    raw_declare(plan, "pipeline_entry", signature)
+    raw_declare(plan, "offset_then_scale", EXPORT_SIGNATURE)
+    raw_declare(plan, "pipeline_entry", EXPORT_SIGNATURE)
     raw_define(plan, "pipeline_entry", raw_emit_pipeline_entry)
     raw_define(plan, "offset_then_scale", raw_emit_offset_then_scale)
     return plan
@@ -175,10 +201,9 @@ def build_raw_success_plan() -> dict[str, object]:
 
 def raw_duplicate_declaration_failure() -> str:
     plan = make_raw_plan("delayed_ir_export_pattern_raw_duplicate")
-    signature = ir.FunctionType(I64, [I64])
-    raw_declare(plan, "duplicate", signature)
+    raw_declare(plan, "duplicate", EXPORT_SIGNATURE)
     try:
-        raw_declare(plan, "duplicate", signature)
+        raw_declare(plan, "duplicate", EXPORT_SIGNATURE)
     except Exception as exc:  # noqa: BLE001
         return str(exc).strip()
     return "unexpected success"
@@ -195,10 +220,19 @@ def raw_call_before_finalize_failure() -> str:
 
 def raw_finalize_missing_body_failure() -> str:
     plan = make_raw_plan("delayed_ir_export_pattern_raw_missing_body")
-    signature = ir.FunctionType(I64, [I64])
-    raw_declare(plan, "declared_only", signature)
+    raw_declare(plan, "declared_only", EXPORT_SIGNATURE)
     try:
         raw_finalize(plan)
+    except Exception as exc:  # noqa: BLE001
+        return str(exc).strip()
+    return "unexpected success"
+
+
+def raw_reopen_type_mismatch_failure() -> str:
+    plan = build_raw_success_plan()
+    wrong_signature = ir.FunctionType(I64, [])
+    try:
+        raw_reopen(plan, "offset_then_scale", wrong_signature)
     except Exception as exc:  # noqa: BLE001
         return str(exc).strip()
     return "unexpected success"
@@ -225,6 +259,7 @@ class ExportPlan:
         self._finalized = False
         self._engine: binding.ExecutionEngine | None = None
         self._callables: dict[str, Callable[[int], int]] = {}
+        self._reopen_log: list[str] = []
 
     def declare(self, name: str, function_type: ir.FunctionType) -> ir.Function:
         if name in self._exports:
@@ -237,6 +272,19 @@ class ExportPlan:
             declaration_index=self._declaration_counter,
         )
         self._declaration_counter += 1
+        return function
+
+    def reopen(self, name: str, function_type: ir.FunctionType) -> ir.Function:
+        try:
+            record = self._exports[name]
+        except KeyError as exc:
+            raise KeyError(f"cannot reopen undeclared export: {name}") from exc
+        function = record.function
+        if function.function_type != function_type:
+            raise TypeError(
+                f"type mismatch reopening {name}: expected {function_type}, found {function.function_type}"
+            )
+        self._reopen_log.append(name)
         return function
 
     def function(self, name: str) -> ir.Function:
@@ -276,6 +324,11 @@ class ExportPlan:
             )
         return lines
 
+    def describe_reopens(self) -> list[str]:
+        if not self._reopen_log:
+            return ["(no reopen-by-name lookups recorded)"]
+        return [f"{index:>2}: {name}" for index, name in enumerate(self._reopen_log)]
+
     def finalize(self) -> None:
         if self._finalized:
             return
@@ -308,11 +361,10 @@ class ExportPlan:
 
 def build_pythonic_success_plan() -> ExportPlan:
     plan = ExportPlan("delayed_ir_export_pattern_pythonic")
-    signature = ir.FunctionType(I64, [I64])
-    plan.declare("offset_then_scale", signature)
-    plan.declare("pipeline_entry", signature)
+    plan.declare("offset_then_scale", EXPORT_SIGNATURE)
+    plan.declare("pipeline_entry", EXPORT_SIGNATURE)
     with plan.define("pipeline_entry") as (builder, function):
-        helper = plan.function("offset_then_scale")
+        helper = plan.reopen("offset_then_scale", EXPORT_SIGNATURE)
         helper_result = builder.call(helper, [function.args[0]], name="helper_result")
         builder.ret(builder.add(helper_result, ir.Constant(I64, 1), name="final_result"))
     with plan.define("offset_then_scale") as (builder, function):
@@ -324,10 +376,9 @@ def build_pythonic_success_plan() -> ExportPlan:
 
 def pythonic_duplicate_declaration_failure() -> str:
     plan = ExportPlan("delayed_ir_export_pattern_pythonic_duplicate")
-    signature = ir.FunctionType(I64, [I64])
-    plan.declare("duplicate", signature)
+    plan.declare("duplicate", EXPORT_SIGNATURE)
     try:
-        plan.declare("duplicate", signature)
+        plan.declare("duplicate", EXPORT_SIGNATURE)
     except Exception as exc:  # noqa: BLE001
         return str(exc).strip()
     return "unexpected success"
@@ -344,10 +395,19 @@ def pythonic_call_before_finalize_failure() -> str:
 
 def pythonic_finalize_missing_body_failure() -> str:
     plan = ExportPlan("delayed_ir_export_pattern_pythonic_missing_body")
-    signature = ir.FunctionType(I64, [I64])
-    plan.declare("declared_only", signature)
+    plan.declare("declared_only", EXPORT_SIGNATURE)
     try:
         plan.finalize()
+    except Exception as exc:  # noqa: BLE001
+        return str(exc).strip()
+    return "unexpected success"
+
+
+def pythonic_reopen_type_mismatch_failure() -> str:
+    plan = build_pythonic_success_plan()
+    wrong_signature = ir.FunctionType(I64, [])
+    try:
+        plan.reopen("offset_then_scale", wrong_signature)
     except Exception as exc:  # noqa: BLE001
         return str(exc).strip()
     return "unexpected success"
@@ -362,10 +422,12 @@ def main() -> None:
     raw_finalize(raw_plan)
     raw_ir = str(raw_plan["module"])
     raw_exports = raw_describe_exports(raw_plan)
+    raw_reopens = list(raw_plan["reopen_log"])
 
     pythonic_plan.finalize()
     pythonic_ir = pythonic_plan.llvm_ir()
     pythonic_exports = pythonic_plan.describe_exports()
+    pythonic_reopens = pythonic_plan.describe_reopens()
 
     samples = (0, 4, 9)
 
@@ -378,11 +440,13 @@ def main() -> None:
     for line in raw_exports:
         print(line)
     print("ordering rule: declare every export first so later bodies can refer to their symbols explicitly")
+    print("reopen rule: the body may reopen a previously declared symbol by name and verify its type before calling it")
     print(raw_ir.rstrip())
     print()
     print("results")
     for sample in samples:
         print(f"pipeline_entry({sample}) -> {raw_call_i64(raw_plan, 'pipeline_entry', sample)}")
+    print(f"raw reopen log: {', '.join(raw_reopens) if raw_reopens else '(none)'}")
     print()
 
     print("== Pythonic Variant ==")
@@ -390,25 +454,32 @@ def main() -> None:
     for line in pythonic_exports:
         print(line)
     print("the plan object keeps the same phase ordering visible while reducing the staging boilerplate")
+    print("reopen-by-name is explicit too: the plan object verifies the function type before handing back the declaration")
     print(pythonic_ir.rstrip())
     print()
     print("results")
     for sample in samples:
         print(f"pipeline_entry({sample}) -> {pythonic_plan.call_i64('pipeline_entry', sample)}")
+    print("pythonic reopen log:")
+    for line in pythonic_reopens:
+        print(line)
     print()
 
     print("== Non-Obvious Failure Modes ==")
     print(f"raw duplicate declaration: {raw_duplicate_declaration_failure()}")
     print(f"raw call before finalize: {raw_call_before_finalize_failure()}")
     print(f"raw finalize with missing body: {raw_finalize_missing_body_failure()}")
+    print(f"raw reopen type mismatch: {raw_reopen_type_mismatch_failure()}")
     print(f"pythonic duplicate declaration: {pythonic_duplicate_declaration_failure()}")
     print(f"pythonic call before finalize: {pythonic_call_before_finalize_failure()}")
     print(f"pythonic finalize with missing body: {pythonic_finalize_missing_body_failure()}")
+    print(f"pythonic reopen type mismatch: {pythonic_reopen_type_mismatch_failure()}")
     print()
 
     print("== Comparison ==")
     print("Both versions export the same pipeline, but the raw one makes the module-state transitions obvious.")
-    print("The Pythonic version earns its keep by staging bodies with a context manager instead of threading book-keeping through every emitter.")
+    print("The reopen-by-name path is separate from delayed planning: it looks up an already declared function, verifies the type, and only then uses it during emission.")
+    print("The Pythonic version earns its keep by staging bodies with a context manager instead of threading book-keeping through every emitter, while still keeping reopen semantics explicit.")
     print()
 
     print("== Pattern / Takeaway ==")

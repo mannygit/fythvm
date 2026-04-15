@@ -18,8 +18,16 @@ def configure_llvm() -> None:
     binding.initialize_native_asmprinter()
 
 
-def compile_module(module: ir.Module, function_name: str) -> tuple[str, binding.ExecutionEngine, CALLABLE_I64_TO_I64]:
-    """Verify a module and return the IR, live engine, and callable function pointer."""
+@dataclass
+class CompiledVariant:
+    llvm_ir: str
+    engine: binding.ExecutionEngine
+    clamp: CALLABLE_I64_TO_I64
+    classify: CALLABLE_I64_TO_I64
+
+
+def compile_variant(module: ir.Module) -> CompiledVariant:
+    """Verify a module and return the IR, live engine, and callable functions."""
 
     llvm_ir = str(module)
     parsed = binding.parse_assembly(llvm_ir)
@@ -29,28 +37,33 @@ def compile_module(module: ir.Module, function_name: str) -> tuple[str, binding.
     target_machine = target.create_target_machine()
     engine = binding.create_mcjit_compiler(parsed, target_machine)
     engine.finalize_object()
-    address = engine.get_function_address(function_name)
-    return llvm_ir, engine, CALLABLE_I64_TO_I64(address)
+    return CompiledVariant(
+        llvm_ir=llvm_ir,
+        engine=engine,
+        clamp=CALLABLE_I64_TO_I64(engine.get_function_address("clamp_0_10")),
+        classify=CALLABLE_I64_TO_I64(engine.get_function_address("classify_score")),
+    )
 
 
-def build_raw_clamp_module() -> ir.Module:
-    """Build a clamp function with explicit blocks and phi nodes."""
+def build_raw_variant_module() -> ir.Module:
+    """Build the branch/phi clamp plus a straight-line select-lowered classifier."""
 
     module = ir.Module(name="metaprogramming_ir_builders_raw")
     module.triple = binding.get_default_triple()
 
     fn_ty = ir.FunctionType(I64, [I64])
-    fn = ir.Function(module, fn_ty, name="clamp_0_10")
-    x = fn.args[0]
+
+    clamp_fn = ir.Function(module, fn_ty, name="clamp_0_10")
+    x = clamp_fn.args[0]
     x.name = "x"
 
-    entry = fn.append_basic_block("entry")
+    entry = clamp_fn.append_basic_block("entry")
     builder = ir.IRBuilder(entry)
 
     is_negative = builder.icmp_signed("<", x, ir.Constant(I64, 0), name="is_negative")
-    negative_block = fn.append_basic_block("negative")
-    check_high_block = fn.append_basic_block("check_high")
-    merge_block = fn.append_basic_block("merge")
+    negative_block = clamp_fn.append_basic_block("negative")
+    check_high_block = clamp_fn.append_basic_block("check_high")
+    merge_block = clamp_fn.append_basic_block("merge")
     builder.cbranch(is_negative, negative_block, check_high_block)
 
     builder.position_at_end(negative_block)
@@ -59,8 +72,8 @@ def build_raw_clamp_module() -> ir.Module:
 
     builder.position_at_end(check_high_block)
     is_above_ten = builder.icmp_signed(">", x, ir.Constant(I64, 10), name="is_above_ten")
-    high_block = fn.append_basic_block("high")
-    in_range_block = fn.append_basic_block("in_range")
+    high_block = clamp_fn.append_basic_block("high")
+    in_range_block = clamp_fn.append_basic_block("in_range")
     builder.cbranch(is_above_ten, high_block, in_range_block)
 
     builder.position_at_end(high_block)
@@ -77,6 +90,29 @@ def build_raw_clamp_module() -> ir.Module:
     clamped.add_incoming(ir.Constant(I64, 10), high_end)
     clamped.add_incoming(x, in_range_end)
     builder.ret(clamped)
+
+    classify_fn = ir.Function(module, fn_ty, name="classify_score")
+    score = classify_fn.args[0]
+    score.name = "score"
+
+    classify_entry = classify_fn.append_basic_block("entry")
+    builder = ir.IRBuilder(classify_entry)
+
+    is_below_zero = builder.icmp_signed("<", score, ir.Constant(I64, 0), name="is_below_zero")
+    below_zero = builder.select(
+        is_below_zero,
+        ir.Constant(I64, -1),
+        ir.Constant(I64, 0),
+        name="below_zero",
+    )
+    is_below_ten = builder.icmp_signed("<", score, ir.Constant(I64, 10), name="is_below_ten")
+    classified = builder.select(
+        is_below_ten,
+        below_zero,
+        ir.Constant(I64, 1),
+        name="classified",
+    )
+    builder.ret(classified)
     return module
 
 
@@ -119,18 +155,43 @@ class BranchMerge:
         return phi
 
 
-def build_pythonic_clamp_module() -> ir.Module:
-    """Build the same clamp with a small context-managed helper object."""
+@dataclass
+class ComparisonLowering:
+    """A tiny helper that keeps repeated compare lowering readable."""
+
+    builder: ir.IRBuilder
+    subject: ir.Value
+
+    def choose_below(
+        self,
+        threshold: int,
+        true_value: ir.Value,
+        false_value: ir.Value,
+        *,
+        name: str,
+    ) -> ir.Value:
+        condition = self.builder.icmp_signed(
+            "<",
+            self.subject,
+            ir.Constant(I64, threshold),
+            name=f"{name}.is_below",
+        )
+        return self.builder.select(condition, true_value, false_value, name=name)
+
+
+def build_pythonic_variant_module() -> ir.Module:
+    """Build the same clamp and classifier with two small helper objects."""
 
     module = ir.Module(name="metaprogramming_ir_builders_pythonic")
     module.triple = binding.get_default_triple()
 
     fn_ty = ir.FunctionType(I64, [I64])
-    fn = ir.Function(module, fn_ty, name="clamp_0_10")
-    x = fn.args[0]
+
+    clamp_fn = ir.Function(module, fn_ty, name="clamp_0_10")
+    x = clamp_fn.args[0]
     x.name = "x"
 
-    entry = fn.append_basic_block("entry")
+    entry = clamp_fn.append_basic_block("entry")
     builder = ir.IRBuilder(entry)
 
     low_choice = BranchMerge(
@@ -156,53 +217,76 @@ def build_pythonic_clamp_module() -> ir.Module:
     clamped = high_choice.merge(high_then_value, high_else_value)
 
     builder.ret(clamped)
+
+    classify_fn = ir.Function(module, fn_ty, name="classify_score")
+    score = classify_fn.args[0]
+    score.name = "score"
+
+    classify_entry = classify_fn.append_basic_block("entry")
+    builder = ir.IRBuilder(classify_entry)
+    lowering = ComparisonLowering(builder, score)
+
+    below_zero = lowering.choose_below(
+        0,
+        ir.Constant(I64, -1),
+        ir.Constant(I64, 0),
+        name="below_zero",
+    )
+    classified = lowering.choose_below(
+        10,
+        below_zero,
+        ir.Constant(I64, 1),
+        name="below_ten",
+    )
+    builder.ret(classified)
     return module
-
-
-def call_clamp(module: ir.Module) -> tuple[str, binding.ExecutionEngine, CALLABLE_I64_TO_I64]:
-    return compile_module(module, "clamp_0_10")
 
 
 def main() -> None:
     configure_llvm()
 
-    raw_module = build_raw_clamp_module()
-    pythonic_module = build_pythonic_clamp_module()
+    raw_variant = compile_variant(build_raw_variant_module())
+    pythonic_variant = compile_variant(build_pythonic_variant_module())
 
-    raw_ir, _raw_engine, raw_clamp = call_clamp(raw_module)
-    pythonic_ir, _pythonic_engine, pythonic_clamp = call_clamp(pythonic_module)
-
-    samples = [-7, 0, 5, 12]
+    clamp_samples = [-7, 0, 5, 12]
+    classification_samples = [-4, 0, 7, 12]
 
     print("== Question ==")
-    print("What is the smallest llvmlite helper that is useful without hiding the CFG?")
+    print("What is the smallest llvmlite helper that is useful without hiding the CFG or making select look like branch prediction?")
     print()
 
     print("== Raw Baseline ==")
-    print("source of truth: explicit block wiring and phi nodes")
-    print(raw_ir.rstrip())
+    print("source of truth: explicit block wiring, phi nodes, and select-based comparison lowering")
+    print(raw_variant.llvm_ir.rstrip())
     print()
-    print("results")
-    for value in samples:
-        print(f"x={value:>3}: clamp_0_10={raw_clamp(value):>2}")
+    print("clamp results")
+    for value in clamp_samples:
+        print(f"x={value:>3}: clamp_0_10={raw_variant.clamp(value):>2}")
+    print("comparison results")
+    for value in classification_samples:
+        print(f"x={value:>3}: classify_score={raw_variant.classify(value):>2}")
     print()
 
     print("== Pythonic Variant ==")
-    print("readability layer: a tiny context-managed branch helper")
-    print(pythonic_ir.rstrip())
+    print("readability layer: a tiny branch helper plus a tiny comparison-lowering helper")
+    print(pythonic_variant.llvm_ir.rstrip())
     print()
-    print("results")
-    for value in samples:
-        print(f"x={value:>3}: clamp_0_10={pythonic_clamp(value):>2}")
+    print("clamp results")
+    for value in clamp_samples:
+        print(f"x={value:>3}: clamp_0_10={pythonic_variant.clamp(value):>2}")
+    print("comparison results")
+    for value in classification_samples:
+        print(f"x={value:>3}: classify_score={pythonic_variant.classify(value):>2}")
     print()
 
     print("== Comparison ==")
-    print("Both versions clamp the same inputs, but only the raw one keeps every CFG step fully spelled out.")
-    print("The Pythonic variant stays readable because it wraps branch/merge plumbing, not because it hides the control flow.")
+    print("The clamp example shows helper factoring for branch/phi wiring.")
+    print("The comparison example shows helper factoring for repeated icmp + select lowering.")
+    print("Neither example is about branch prediction; the select form is only used when both candidate values are already safe to compute.")
     print()
 
     print("== Pattern ==")
-    print("Use one thin helper for branch/phi repetition, but stop before the CFG becomes opaque.")
+    print("Use one thin helper for repeated branch/phi wiring or repeated compare lowering, but stop before the CFG or the straight-line lowering shape becomes opaque.")
     print()
 
     print("== Takeaway ==")

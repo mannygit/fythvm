@@ -7,15 +7,6 @@ close out. Keep the backlog small and explicit.
 
 ## Triage
 
-- `multi-stage-early-exit-search`
-  - Title: Multi-stage early-exit search blocks
-  - Goal: Capture the pattern of several decision stages converging on one `exit`
-    block with a phi carrying either the found value or a sentinel.
-  - Why it matters: `~/fyth` used this for hidden checks, length checks, and compare
-    loops, and it is a useful lowering shape for searches.
-  - Distinct from existing labs: the current phi lab is simpler and does not cover
-    multi-stage early-exit composition.
-
 - `direct-threaded-musttail-dispatch`
   - Title: Direct-threaded interpreter dispatch with `musttail`
   - Goal: Capture the `next_fn` / `@EXECUTE` / `EXECUTE` pattern from `forth.py` and
@@ -35,15 +26,6 @@ close out. Keep the backlog small and explicit.
   - Distinct from existing labs: it is not the same as delayed export or generic tail
     calls; it is specifically about CFG rewriting after function generation.
 
-- `forward-declare-then-reopen-function`
-  - Title: Forward declare and reopen function emission
-  - Goal: Capture the `create_function()` pattern that reuses an existing named
-    function when reopening emission after a forward declaration.
-  - Why it matters: This is adjacent to delayed export, but it is its own pattern for
-    safe re-entry into function construction.
-  - Distinct from existing labs: `delayed-ir-export-pattern` focuses on module-scoped
-    export planning, not reopening an already-declared function by name.
-
 - `alignment-bit-tricks-vs-branch-phi`
   - Title: Alignment bit tricks versus branch-plus-phi
   - Goal: Capture the shift from a branchy alignment calculation to the compact
@@ -52,15 +34,6 @@ close out. Keep the backlog small and explicit.
     experimentation rather than formal compiler training.
   - Distinct from existing labs: this is a low-level address arithmetic pattern, not a
     control-flow or lifecycle pattern.
-
-- `select-driven-comparison-builtins`
-  - Title: `select`-driven comparison builtin factoring
-  - Goal: Capture the shared-helper shape used in `forth_equality.py` where several
-    stack comparisons lower to `icmp` plus `select`.
-  - Why it matters: It is a compact pattern for repeated comparison lowering and shows
-    where helper abstraction stays acceptable.
-  - Distinct from existing labs: it overlaps slightly with `metaprogramming-ir-builders`
-    but is specifically about arithmetic/comparison lowering via `select`.
 
 ## In Progress
 
@@ -173,8 +146,9 @@ None.
     debuggable.
   - Success signal: The lab demonstrates one pattern that improves reuse and clearly
     states when the abstraction helps versus when it obscures the IR shape.
-  - Takeaway: Bless one thin helper for repeated branch/phi boilerplate, but stop
-    before helper composition starts hiding the CFG you need to understand.
+  - Takeaway: Use thin helpers for repeated branch/phi and `icmp`/`select` lowering,
+    but stop before helper composition starts hiding the CFG or making comparison
+    classification look like a performance story.
   - Lab: `explorations/lab/metaprogramming-ir-builders/`
 
 - `delayed-ir-export-pattern`
@@ -186,7 +160,8 @@ None.
   - Success signal: The lab shows a clean delayed-definition workflow with obvious
     ordering rules and without leaning on global mutable registries as magic.
   - Takeaway: Use a host-owned, module-scoped export plan with declaration first,
-    body emission later, and explicit finalization as the moment exports become callable.
+    safe reopen-by-name for continued emission, body emission later, and explicit
+    finalization as the moment exports become callable.
   - Lab: `explorations/lab/delayed-ir-export-pattern/`
 
 - `word-header-packing-and-flags`
@@ -236,7 +211,8 @@ None.
     either a useful result or a sentinel, and explains why that is cleaner than
     branching out to separate return blocks.
   - Takeaway: Use a final result phi when a search has one semantic answer and a clear
-    sentinel contract, instead of scattering that contract across multiple returns.
+    sentinel contract, including multi-stage early-exit searches where several checks
+    converge on one exit block.
   - Lab: `explorations/lab/result-carrier-phi-sentinels/`
 
 - `musttail-chunked-memory-ops`
