@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Callable, Literal, Sequence
 
 from llvmlite import binding, ir
 
@@ -16,6 +16,7 @@ from .codegen import (
     ContextStructStackAccess,
     ParamLoop,
     SharedExit,
+    SwitchDispatcher,
     compile_ir_module,
     emit_tagged_cell_dispatch,
     configure_llvm,
@@ -48,6 +49,47 @@ KNOWN_OPS = {
     OP_MOD: "%",
     OP_EXIT: "=",
 }
+
+BinaryOperation = Callable[[ir.IRBuilder, ir.Value, ir.Value], ir.Value]
+
+
+def _emit_add(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.add(lhs, rhs, name="sum")
+
+
+def _emit_sub(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.sub(lhs, rhs, name="diff")
+
+
+def _emit_mul(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.mul(lhs, rhs, name="product")
+
+
+def _emit_div(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.sdiv(lhs, rhs, name="quotient")
+
+
+def _emit_mod(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.srem(lhs, rhs, name="remainder")
+
+
+@dataclass(frozen=True)
+class _OpcodeSpec:
+    opcode_value: int
+    name: str
+    kind: Literal["binary", "exit"]
+    operation: BinaryOperation | None = None
+    zero_sensitive: bool = False
+
+
+OPCODE_SPECS = (
+    _OpcodeSpec(OP_ADD, "add", "binary", _emit_add),
+    _OpcodeSpec(OP_SUB, "sub", "binary", _emit_sub),
+    _OpcodeSpec(OP_MUL, "mul", "binary", _emit_mul),
+    _OpcodeSpec(OP_DIV, "div", "binary", _emit_div, zero_sensitive=True),
+    _OpcodeSpec(OP_MOD, "mod", "binary", _emit_mod, zero_sensitive=True),
+    _OpcodeSpec(OP_EXIT, "exit", "exit"),
+)
 
 class CalcContext(ctypes.Structure):
     _fields_ = [
@@ -164,7 +206,6 @@ class CalculatorEmitter:
         self.bad_opcode_block = self.function.append_basic_block("bad_opcode")
         self.bad_exit_shape_block = self.function.append_basic_block("bad_exit_shape")
         self.overflow_block = self.function.append_basic_block("overflow")
-        self.ok_block = self.function.append_basic_block("ok")
         self.exit = SharedExit(self.function, [("status", I32), ("result", I16)])
 
     def emit_loop_head(self) -> ir.Value:
@@ -190,7 +231,6 @@ class CalculatorEmitter:
             )
 
     def emit_literal_handler(self, step: FetchedCell) -> None:
-
         self.builder.position_at_end(self.literal_check_block)
         current_sp = self.stack.load_sp(self.builder)
         has_room = self.builder.icmp_unsigned("!=", current_sp, I32(0), name="has_room")
@@ -205,56 +245,62 @@ class CalculatorEmitter:
 
     def emit_binary_handler(
         self,
-        switch: ir.instructions.SwitchInstr,
+        builder: ir.IRBuilder,
         step: FetchedCell,
-        opcode_value: int,
-        name: str,
-        operation,
-        *,
-        zero_sensitive: bool = False,
+        spec: _OpcodeSpec,
     ) -> None:
-        check_block = self.function.append_basic_block(f"{name}.check")
-        switch.add_case(I16(opcode_value), check_block)
+        if spec.operation is None:
+            raise ValueError(f"binary opcode spec {spec.name!r} is missing an operation")
 
-        apply_block = self.function.append_basic_block(f"{name}.apply")
-        self.builder.position_at_end(check_block)
-        current_sp = self.stack.load_sp(self.builder)
-        enough_items = self.builder.icmp_unsigned("<=", current_sp, I32(STACK_SIZE - 2), name=f"{name}_enough")
-        if zero_sensitive:
-            zero_check_block = self.function.append_basic_block(f"{name}.zero_check")
-            self.builder.cbranch(enough_items, zero_check_block, self.underflow_block)
+        apply_block = self.function.append_basic_block(f"{spec.name}.apply")
+        current_sp = self.stack.load_sp(builder)
+        enough_items = builder.icmp_unsigned("<=", current_sp, I32(STACK_SIZE - 2), name=f"{spec.name}_enough")
+        if spec.zero_sensitive:
+            zero_check_block = self.function.append_basic_block(f"{spec.name}.zero_check")
+            builder.cbranch(enough_items, zero_check_block, self.underflow_block)
 
-            self.builder.position_at_end(zero_check_block)
-            rhs = self.builder.load(self.stack.slot(self.builder, current_sp, name=f"{name}_rhs_ptr"), name="rhs")
-            rhs_is_zero = self.builder.icmp_signed("==", rhs, I16(0), name=f"{name}_rhs_is_zero")
-            self.builder.cbranch(rhs_is_zero, self.divzero_block, apply_block)
+            builder.position_at_end(zero_check_block)
+            rhs = builder.load(self.stack.slot(builder, current_sp, name=f"{spec.name}_rhs_ptr"), name="rhs")
+            rhs_is_zero = builder.icmp_signed("==", rhs, I16(0), name=f"{spec.name}_rhs_is_zero")
+            builder.cbranch(rhs_is_zero, self.divzero_block, apply_block)
         else:
-            self.builder.cbranch(enough_items, apply_block, self.underflow_block)
+            builder.cbranch(enough_items, apply_block, self.underflow_block)
 
-        self.builder.position_at_end(apply_block)
-        current_sp = self.stack.load_sp(self.builder)
-        rhs = self.builder.load(self.stack.slot(self.builder, current_sp, name=f"{name}_rhs_ptr"), name="rhs")
-        lhs_index = self.builder.add(current_sp, I32(1), name="lhs_index")
-        lhs = self.builder.load(self.stack.slot(self.builder, lhs_index, name=f"{name}_lhs_ptr"), name="lhs")
-        result = operation(self.builder, lhs, rhs)
-        self.builder.store(result, self.stack.slot(self.builder, lhs_index, name=f"{name}_result_ptr"))
-        self.stack.store_sp(self.builder, lhs_index)
+        builder.position_at_end(apply_block)
+        current_sp = self.stack.load_sp(builder)
+        rhs = builder.load(self.stack.slot(builder, current_sp, name=f"{spec.name}_rhs_ptr"), name="rhs")
+        lhs_index = builder.add(current_sp, I32(1), name="lhs_index")
+        lhs = builder.load(self.stack.slot(builder, lhs_index, name=f"{spec.name}_lhs_ptr"), name="lhs")
+        result = spec.operation(builder, lhs, rhs)
+        builder.store(result, self.stack.slot(builder, lhs_index, name=f"{spec.name}_result_ptr"))
+        self.stack.store_sp(builder, lhs_index)
         self.loop.continue_from_here(step.next_ip)
 
-    def emit_exit_handler(self, switch: ir.instructions.SwitchInstr) -> None:
-        switch.add_case(I16(OP_EXIT), self.ok_block)
-
-        self.builder.position_at_end(self.ok_block)
-        current_sp = self.stack.load_sp(self.builder)
-        has_single_value = self.builder.icmp_unsigned(
+    def emit_exit_handler(self, builder: ir.IRBuilder) -> None:
+        current_sp = self.stack.load_sp(builder)
+        has_single_value = builder.icmp_unsigned(
             "==", current_sp, I32(STACK_SIZE - 1), name="has_single_value"
         )
         singleton_ok_block = self.function.append_basic_block("ok.singleton")
-        self.builder.cbranch(has_single_value, singleton_ok_block, self.bad_exit_shape_block)
+        builder.cbranch(has_single_value, singleton_ok_block, self.bad_exit_shape_block)
 
-        self.builder.position_at_end(singleton_ok_block)
-        result = self.builder.load(self.stack.slot(self.builder, current_sp), name="result")
-        self.exit.remember(self.builder, I32(STATUS_OK), result)
+        builder.position_at_end(singleton_ok_block)
+        result = builder.load(self.stack.slot(builder, current_sp), name="result")
+        self.exit.remember(builder, I32(STATUS_OK), result)
+
+    def emit_opcode_dispatch(self, step: FetchedCell) -> None:
+        self.builder.position_at_end(self.opcode_block)
+        dispatcher = SwitchDispatcher(self.builder, step.current_cell, self.bad_opcode_block, name="opcode")
+        for spec in OPCODE_SPECS:
+            if spec.kind == "binary":
+                dispatcher.add_case(
+                    I16(spec.opcode_value),
+                    spec.name,
+                    lambda builder, spec=spec: self.emit_binary_handler(builder, step, spec),
+                )
+            else:
+                dispatcher.add_case(I16(spec.opcode_value), spec.name, self.emit_exit_handler)
+        dispatcher.emit()
 
     def emit_error_blocks(self) -> None:
         for block, status in (
@@ -272,30 +318,7 @@ class CalculatorEmitter:
         ip = self.emit_loop_head()
         step = self.emit_dispatch(ip)
         self.emit_literal_handler(step)
-
-        self.builder.position_at_end(self.opcode_block)
-        switch = self.builder.switch(step.current_cell, self.bad_opcode_block)
-
-        self.emit_binary_handler(switch, step, OP_ADD, "add", lambda builder, lhs, rhs: builder.add(lhs, rhs, name="sum"))
-        self.emit_binary_handler(switch, step, OP_SUB, "sub", lambda builder, lhs, rhs: builder.sub(lhs, rhs, name="diff"))
-        self.emit_binary_handler(switch, step, OP_MUL, "mul", lambda builder, lhs, rhs: builder.mul(lhs, rhs, name="product"))
-        self.emit_binary_handler(
-            switch,
-            step,
-            OP_DIV,
-            "div",
-            lambda builder, lhs, rhs: builder.sdiv(lhs, rhs, name="quotient"),
-            zero_sensitive=True,
-        )
-        self.emit_binary_handler(
-            switch,
-            step,
-            OP_MOD,
-            "mod",
-            lambda builder, lhs, rhs: builder.srem(lhs, rhs, name="remainder"),
-            zero_sensitive=True,
-        )
-        self.emit_exit_handler(switch)
+        self.emit_opcode_dispatch(step)
         self.emit_error_blocks()
 
         status_phi, result_phi = self.exit.finish()

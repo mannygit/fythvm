@@ -11,6 +11,7 @@ from fythvm.codegen import (
     Join,
     ParamLoop,
     SharedExit,
+    SwitchDispatcher,
     compile_ir_module,
     configure_llvm,
 )
@@ -152,6 +153,59 @@ def test_param_loop_carries_multiple_values_through_loop_header() -> None:
     compiled = compile_ir_module(module)
     sum_zero_to_two = ctypes.CFUNCTYPE(ctypes.c_longlong)(compiled.function_address("sum_zero_to_two"))
     assert sum_zero_to_two() == 3
+
+
+def test_switch_dispatcher_routes_cases_and_default() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="switch_dispatcher_basic")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(module, ir.FunctionType(I64, [I16]), name="choose")
+
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    default_block = fn.append_basic_block("default")
+    dispatcher = SwitchDispatcher(builder, fn.args[0], default_block, name="dispatch")
+    dispatcher.add_case(I16(1), "one", lambda current: current.ret(I64(11)))
+    dispatcher.add_case(I16(2), "two", lambda current: current.ret(I64(22)))
+    dispatcher.emit()
+
+    builder.position_at_end(default_block)
+    builder.ret(I64(99))
+
+    compiled = compile_ir_module(module)
+    choose = ctypes.CFUNCTYPE(ctypes.c_longlong, ctypes.c_short)(compiled.function_address("choose"))
+    assert choose(1) == 11
+    assert choose(2) == 22
+    assert choose(7) == 99
+
+
+def test_switch_dispatcher_case_callbacks_can_feed_shared_join() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="switch_dispatcher_join")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(module, ir.FunctionType(I64, [I16]), name="dispatch_join")
+
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    default_block = fn.append_basic_block("default")
+    merge_block = fn.append_basic_block("merge")
+    join = Join(builder, merge_block, [("value", I64)])
+    dispatcher = SwitchDispatcher(builder, fn.args[0], default_block, name="dispatch")
+    dispatcher.add_case(I16(1), "one", lambda current: join.branch_from_here(current, I64(7)))
+    dispatcher.add_case(I16(2), "two", lambda current: join.branch_from_here(current, I64(8)))
+    dispatcher.emit()
+
+    builder.position_at_end(default_block)
+    join.branch_from_here(builder, I64(9))
+
+    with join as (value,):
+        builder.ret(value)
+
+    compiled = compile_ir_module(module)
+    dispatch_join = ctypes.CFUNCTYPE(ctypes.c_longlong, ctypes.c_short)(compiled.function_address("dispatch_join"))
+    assert dispatch_join(1) == 7
+    assert dispatch_join(2) == 8
+    assert dispatch_join(3) == 9
 
 
 def test_context_struct_stack_access_reaches_stack_and_sp_fields() -> None:

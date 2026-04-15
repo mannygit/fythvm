@@ -9,6 +9,7 @@ from .exits import SharedExit
 from .interpreter import FetchedCell, emit_tagged_cell_dispatch
 from .joins import Join
 from .llvm import CompiledIRModule, compile_ir_module, configure_llvm
+from .dispatch import SwitchCaseSpec, SwitchDispatcher
 from .loops import ParamLoop
 from .stack import AbstractStackAccess, ContextStructStackAccess
 from .types import I16, I16_PTR, I32
@@ -24,6 +25,8 @@ __all__ = [
     "Join",
     "ParamLoop",
     "SharedExit",
+    "SwitchCaseSpec",
+    "SwitchDispatcher",
     "compile_ir_module",
     "emit_tagged_cell_dispatch",
     "configure_llvm",
