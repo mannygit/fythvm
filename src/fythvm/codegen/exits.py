@@ -13,6 +13,7 @@ class SharedExit:
         self.exit_block = self.builder.basic_block
         self.specs = specs
         self._incoming: list[tuple[tuple[ir.Value, ...], ir.Block]] = []
+        self._finished = False
 
     def remember(self, builder: ir.IRBuilder, *values: ir.Value) -> None:
         if len(values) != len(self.specs):
@@ -21,6 +22,11 @@ class SharedExit:
         builder.branch(self.exit_block)
 
     def finish(self) -> tuple[ir.PhiInstr, ...]:
+        if self._finished:
+            raise RuntimeError("shared exit can only be finished once")
+        if not self._incoming:
+            raise RuntimeError("shared exit has no incoming edges")
+        self._finished = True
         self.builder.position_at_end(self.exit_block)
         phis = tuple(self.builder.phi(ty, name=name) for name, ty in self.specs)
         for values, block in self._incoming:
