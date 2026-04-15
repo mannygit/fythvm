@@ -216,18 +216,16 @@ def test_context_struct_stack_access_reaches_stack_and_sp_fields() -> None:
     module.triple = binding.get_default_triple()
 
     seed_fn = ir.Function(module, ir.FunctionType(ir.VoidType(), [ctx_type.as_pointer(), I16]), name="seed")
-    stack = ContextStructStackAccess(seed_fn.args[0])
-    builder = ir.IRBuilder(seed_fn.append_basic_block("entry"))
-    current_sp = stack.load_sp(builder)
-    new_sp = builder.sub(current_sp, I32(1), name="new_sp")
-    builder.store(seed_fn.args[1], stack.slot(builder, new_sp))
-    stack.store_sp(builder, new_sp)
-    builder.ret_void()
+    stack = ContextStructStackAccess(seed_fn.args[0]).bind(ir.IRBuilder(seed_fn.append_basic_block("entry")))
+    current_sp = stack.load_sp()
+    new_sp = stack.builder.sub(current_sp, I32(1), name="new_sp")
+    stack.builder.store(seed_fn.args[1], stack.slot(new_sp))
+    stack.store_sp(new_sp)
+    stack.builder.ret_void()
 
     peek_fn = ir.Function(module, ir.FunctionType(I16, [ctx_type.as_pointer()]), name="peek")
-    stack = ContextStructStackAccess(peek_fn.args[0])
-    builder = ir.IRBuilder(peek_fn.append_basic_block("entry"))
-    builder.ret(builder.load(stack.slot(builder, stack.load_sp(builder)), name="value"))
+    stack = ContextStructStackAccess(peek_fn.args[0]).bind(ir.IRBuilder(peek_fn.append_basic_block("entry")))
+    stack.builder.ret(stack.peek(name="value"))
 
     compiled = compile_ir_module(module)
     seed = ctypes.CFUNCTYPE(None, ctypes.POINTER(TinyStackContext), ctypes.c_int16)(compiled.function_address("seed"))
@@ -238,3 +236,66 @@ def test_context_struct_stack_access_reaches_stack_and_sp_fields() -> None:
     seed(ctypes.byref(ctx), 12)
     assert ctx.sp == 3
     assert peek(ctypes.byref(ctx)) == 12
+
+
+def test_context_struct_stack_access_supports_reset_push_pop2_and_peek() -> None:
+    configure_llvm()
+
+    ctx_type = ir.LiteralStructType([ir.ArrayType(I16, 4), I32])
+    module = ir.Module(name="stack_ops_test")
+    module.triple = binding.get_default_triple()
+
+    apply_fn = ir.Function(module, ir.FunctionType(I16, [ctx_type.as_pointer(), I16, I16]), name="apply_add")
+    stack = ContextStructStackAccess(apply_fn.args[0]).bind(ir.IRBuilder(apply_fn.append_basic_block("entry")))
+    stack.reset(I32(4))
+    stack.push(apply_fn.args[1], name="push_lhs_sp")
+    stack.push(apply_fn.args[2], name="push_rhs_sp")
+    operands = stack.pop2()
+    result = stack.builder.add(operands.lhs, operands.rhs, name="sum")
+    stack.builder.store(result, stack.slot(operands.result_index, name="result_ptr"))
+    stack.store_sp(operands.result_index)
+    stack.builder.ret(stack.peek(name="top"))
+
+    compiled = compile_ir_module(module)
+    apply_add = ctypes.CFUNCTYPE(ctypes.c_int16, ctypes.POINTER(TinyStackContext), ctypes.c_int16, ctypes.c_int16)(
+        compiled.function_address("apply_add")
+    )
+
+    ctx = TinyStackContext()
+    result = apply_add(ctypes.byref(ctx), 7, 5)
+    assert result == 12
+    assert ctx.sp == 3
+    assert ctx.stack[3] == 12
+
+
+def test_context_struct_stack_access_shape_predicates_follow_stack_capacity() -> None:
+    configure_llvm()
+
+    ctx_type = ir.LiteralStructType([ir.ArrayType(I16, 4), I32])
+    module = ir.Module(name="stack_shape_predicates")
+    module.triple = binding.get_default_triple()
+
+    encode_fn = ir.Function(module, ir.FunctionType(I32, [ctx_type.as_pointer()]), name="encode")
+    stack = ContextStructStackAccess(encode_fn.args[0]).bind(ir.IRBuilder(encode_fn.append_basic_block("entry")))
+
+    has_room = stack.has_room(name="has_room")
+    has_two = stack.has_at_least(2, name="has_two")
+    has_one = stack.has_exactly(1, name="has_one")
+
+    encoded = stack.builder.zext(has_room, I32, name="room_i32")
+    encoded = stack.builder.or_(encoded, stack.builder.shl(stack.builder.zext(has_two, I32), I32(1)), name="room_two")
+    encoded = stack.builder.or_(encoded, stack.builder.shl(stack.builder.zext(has_one, I32), I32(2)), name="all_bits")
+    stack.builder.ret(encoded)
+
+    compiled = compile_ir_module(module)
+    encode = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.POINTER(TinyStackContext))(compiled.function_address("encode"))
+
+    ctx = TinyStackContext()
+    ctx.sp = 4
+    assert encode(ctypes.byref(ctx)) == 1
+
+    ctx.sp = 2
+    assert encode(ctypes.byref(ctx)) == 3
+
+    ctx.sp = 3
+    assert encode(ctypes.byref(ctx)) == 5

@@ -11,11 +11,12 @@ from .joins import Join
 from .llvm import CompiledIRModule, compile_ir_module, configure_llvm
 from .dispatch import SwitchCaseSpec, SwitchDispatcher
 from .loops import ParamLoop
-from .stack import AbstractStackAccess, ContextStructStackAccess
+from .stack import AbstractStackAccess, BoundStackAccess, ContextStructStackAccess, PoppedPair
 from .types import I16, I16_PTR, I32
 
 __all__ = [
     "AbstractStackAccess",
+    "BoundStackAccess",
     "CompiledIRModule",
     "ContextStructStackAccess",
     "FetchedCell",
@@ -24,6 +25,7 @@ __all__ = [
     "I32",
     "Join",
     "ParamLoop",
+    "PoppedPair",
     "SharedExit",
     "SwitchCaseSpec",
     "SwitchDispatcher",

@@ -2,13 +2,65 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from llvmlite import ir
 
 from .types import I32
 
 
+@dataclass(frozen=True)
+class PoppedPair:
+    """Two top stack values plus the index where a reduced result should land."""
+
+    lhs: ir.Value
+    rhs: ir.Value
+    result_index: ir.Value
+
+
+class BoundStackAccess:
+    """A stack access object bound to one active IR builder."""
+
+    def __init__(self, access: "AbstractStackAccess", builder: ir.IRBuilder):
+        self.access = access
+        self.builder = builder
+
+    def slot(self, index: ir.Value, name: str = "slot_ptr") -> ir.Value:
+        return self.access.slot(self.builder, index, name=name)
+
+    def load_sp(self, name: str = "sp") -> ir.Value:
+        return self.access.load_sp(self.builder, name=name)
+
+    def store_sp(self, value: ir.Value) -> None:
+        self.access.store_sp(self.builder, value)
+
+    def reset(self, empty_sp: ir.Value) -> None:
+        self.access.reset(self.builder, empty_sp)
+
+    def push(self, value: ir.Value, *, name: str = "new_sp") -> ir.Value:
+        return self.access.push(self.builder, value, name=name)
+
+    def pop2(self, *, result_index_name: str = "lhs_index") -> PoppedPair:
+        return self.access.pop2(self.builder, result_index_name=result_index_name)
+
+    def peek(self, *, name: str = "value") -> ir.Value:
+        return self.access.peek(self.builder, name=name)
+
+    def has_room(self, *, name: str = "has_room") -> ir.Value:
+        return self.access.has_room(self.builder, name=name)
+
+    def has_at_least(self, count: int, *, name: str = "has_at_least") -> ir.Value:
+        return self.access.has_at_least(self.builder, count, name=name)
+
+    def has_exactly(self, count: int, *, name: str = "has_exactly") -> ir.Value:
+        return self.access.has_exactly(self.builder, count, name=name)
+
+
 class AbstractStackAccess:
     """Keep stack semantics separate from how stack fields are reached."""
+
+    def bind(self, builder: ir.IRBuilder) -> BoundStackAccess:
+        return BoundStackAccess(self, builder)
 
     def load_stack_base(self, builder: ir.IRBuilder) -> ir.Value:
         raise NotImplementedError
@@ -24,6 +76,44 @@ class AbstractStackAccess:
 
     def store_sp(self, builder: ir.IRBuilder, value: ir.Value) -> None:
         builder.store(value, self.load_sp_ptr(builder))
+
+    def reset(self, builder: ir.IRBuilder, empty_sp: ir.Value) -> None:
+        self.store_sp(builder, empty_sp)
+
+    def push(self, builder: ir.IRBuilder, value: ir.Value, *, name: str = "new_sp") -> ir.Value:
+        current_sp = self.load_sp(builder)
+        new_sp = builder.sub(current_sp, I32(1), name=name)
+        builder.store(value, self.slot(builder, new_sp))
+        self.store_sp(builder, new_sp)
+        return new_sp
+
+    def pop2(self, builder: ir.IRBuilder, *, result_index_name: str = "lhs_index") -> PoppedPair:
+        current_sp = self.load_sp(builder)
+        rhs = builder.load(self.slot(builder, current_sp, name="rhs_ptr"), name="rhs")
+        result_index = builder.add(current_sp, I32(1), name=result_index_name)
+        lhs = builder.load(self.slot(builder, result_index, name="lhs_ptr"), name="lhs")
+        return PoppedPair(lhs=lhs, rhs=rhs, result_index=result_index)
+
+    def peek(self, builder: ir.IRBuilder, *, name: str = "value") -> ir.Value:
+        current_sp = self.load_sp(builder)
+        return builder.load(self.slot(builder, current_sp), name=name)
+
+    def has_room(self, builder: ir.IRBuilder, *, name: str = "has_room") -> ir.Value:
+        current_sp = self.load_sp(builder)
+        return builder.icmp_unsigned("!=", current_sp, I32(0), name=name)
+
+    def has_at_least(self, builder: ir.IRBuilder, count: int, *, name: str = "has_at_least") -> ir.Value:
+        current_sp = self.load_sp(builder)
+        highest_valid_sp = I32(self.stack_capacity(builder) - count)
+        return builder.icmp_unsigned("<=", current_sp, highest_valid_sp, name=name)
+
+    def has_exactly(self, builder: ir.IRBuilder, count: int, *, name: str = "has_exactly") -> ir.Value:
+        current_sp = self.load_sp(builder)
+        expected_sp = I32(self.stack_capacity(builder) - count)
+        return builder.icmp_unsigned("==", current_sp, expected_sp, name=name)
+
+    def stack_capacity(self, builder: ir.IRBuilder) -> int:
+        raise NotImplementedError
 
 
 class ContextStructStackAccess(AbstractStackAccess):
@@ -50,3 +140,7 @@ class ContextStructStackAccess(AbstractStackAccess):
             inbounds=True,
             name="sp_ptr",
         )
+
+    def stack_capacity(self, builder: ir.IRBuilder) -> int:
+        stack_type = self.ctx_ptr.type.pointee.elements[self.stack_field_index]
+        return stack_type.count
