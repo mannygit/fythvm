@@ -30,6 +30,10 @@ Every lab lives at `explorations/lab/<slug>/` and must include:
 - `README.md`: the human-facing explanation.
 - `lab.toml`: machine-readable metadata.
 
+The default `run.py` path for every lab should be safe to execute on the supported
+host path. If a lab needs risky, noisy, or platform-sensitive behavior, keep that
+behavior behind an explicit opt-in flag and make the default path the safe one.
+
 The canonical inner run command is:
 
 ```bash

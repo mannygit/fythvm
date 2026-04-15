@@ -20,6 +20,8 @@ The v1 layout is intentionally narrow:
 
 This lab does not try to reconcile the linked-memory model with `core/layout.py`, and
 it does not decide broader Forth redefinition or compile-state semantics.
+That unresolved runtime-policy question is why the lab remains `draft` even though the
+demonstrated layout and traversal mechanics are stable.
 
 ## How to Run
 

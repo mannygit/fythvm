@@ -5,4 +5,3 @@ status = "draft"
 tags = ["fyth", "memory", "dictionary", "linked-list", "layout"]
 run = "uv run python explorations/lab/dictionary-linked-memory-layout/run.py"
 agent_authored = true
-safe_to_smoke = true

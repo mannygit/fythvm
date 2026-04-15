@@ -22,6 +22,11 @@ The raw tuple join is the source of truth. The Pythonic variants exist to expres
 real reusable abstraction: successor blocks conceptually take an argument tuple, and
 LLVM spells those block parameters as phis at block entry.
 
+For narrower instances of the same mental model, see
+[ssa-phi-merge](/Users/manny/fythvm/explorations/lab/ssa-phi-merge/README.md:1),
+[loop-carried-traversal-phis](/Users/manny/fythvm/explorations/lab/loop-carried-traversal-phis/README.md:1),
+and [result-carrier-phi-sentinels](/Users/manny/fythvm/explorations/lab/result-carrier-phi-sentinels/README.md:1).
+
 ## How to Run
 
 ```bash

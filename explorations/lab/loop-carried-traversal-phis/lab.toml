@@ -5,4 +5,3 @@ status = "stable"
 tags = ["llvmlite", "ssa", "phi", "loops", "linked-list", "ir"]
 run = "uv run python explorations/lab/loop-carried-traversal-phis/run.py"
 agent_authored = true
-safe_to_smoke = true

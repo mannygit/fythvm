@@ -34,6 +34,11 @@ calls and block positioning. The Pythonic version uses a small helper object and
 block-positioning context manager to remove repeated pointer arithmetic and trace
 wiring while keeping the tail-call blocks visible.
 
+For the builtin-intrinsic sibling, see
+[llvmlite-mem-intrinsics](/Users/manny/fythvm/explorations/lab/llvmlite-mem-intrinsics/README.md:1),
+which wires `llvm.memcpy`, `llvm.memmove`, and `llvm.memset` directly instead of
+hand-building the copy path.
+
 ## How to Run
 
 ```bash

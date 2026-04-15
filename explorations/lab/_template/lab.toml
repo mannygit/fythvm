@@ -5,4 +5,3 @@ status = "draft"
 tags = ["replace-me"]
 run = "uv run python explorations/lab/{{ slug }}/run.py"
 agent_authored = true
-safe_to_smoke = false

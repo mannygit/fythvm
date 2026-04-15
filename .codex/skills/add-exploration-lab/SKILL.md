@@ -78,7 +78,6 @@ errors that are easy to make until you trip over them in practice.
 - `tags`
 - `run`
 - `agent_authored`
-- `safe_to_smoke`
 
 Use the canonical inner run command format:
 

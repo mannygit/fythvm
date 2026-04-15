@@ -5,4 +5,3 @@ status = "draft"
 tags = ["llvmlite", "mcjit", "macos", "negative-control", "llvm"]
 run = "uv run python explorations/lab/mcjit-global-ctor-dtor-negative-control/run.py"
 agent_authored = true
-safe_to_smoke = true

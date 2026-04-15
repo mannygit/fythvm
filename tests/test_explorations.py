@@ -17,7 +17,6 @@ REQUIRED_METADATA = (
     "tags",
     "run",
     "agent_authored",
-    "safe_to_smoke",
 )
 REQUIRED_README_HEADINGS = (
     "## Question",

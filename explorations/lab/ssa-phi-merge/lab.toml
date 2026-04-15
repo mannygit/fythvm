@@ -5,4 +5,3 @@ status = "stable"
 tags = ["llvmlite", "ssa", "phi", "control-flow", "ir"]
 run = "uv run python explorations/lab/ssa-phi-merge/run.py"
 agent_authored = true
-safe_to_smoke = true

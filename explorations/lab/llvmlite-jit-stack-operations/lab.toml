@@ -5,4 +5,3 @@ status = "stable"
 tags = ["llvmlite", "jit", "stack", "runtime", "memory"]
 run = "uv run python explorations/lab/llvmlite-jit-stack-operations/run.py"
 agent_authored = true
-safe_to_smoke = false

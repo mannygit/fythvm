@@ -5,6 +5,35 @@ close out. Keep the backlog small and explicit.
 
 ## Ready
 
+- `llvmlite-assume-and-overflow-intrinsics`
+  - Title: llvmlite assume and overflow intrinsics
+  - Goal: Show how `llvm.assume` and the integer overflow intrinsics are exposed in
+    llvmlite and what they actually mean at the IR level.
+  - Why it matters: These intrinsics are directly available today, but they are easy
+    to misread as runtime checks or magic arithmetic.
+
+- `bit-twiddling-intrinsics`
+  - Title: Bit-twiddling intrinsics in llvmlite
+  - Goal: Demonstrate `bswap`, `bitreverse`, `ctpop`, `ctlz`, and `cttz` through the
+    current `IRBuilder` helpers.
+  - Why it matters: They form a coherent intrinsic family and make a good contrast
+    with the manually declared mem* intrinsics.
+
+- `memcpy-vs-handbuilt-copy`
+  - Title: LLVM mem intrinsics versus hand-built copy lowering
+  - Goal: Compare the mem-intrinsics lab against the musttail chunked copy lab so the
+    tradeoff between built-in intrinsics and explicit control-flow lowering is
+    captured directly.
+  - Why it matters: The repo now has both patterns, but not yet one place that
+    explains when you would pick one over the other.
+
+- `context-struct-stack-storage`
+  - Title: Context-struct-backed stack storage
+  - Goal: Extend the generalized stack lab so stack base and stack pointer come from a
+    context struct rather than pointer globals.
+  - Why it matters: It is the natural next step after separating stack ops from stack
+    storage ownership.
+
 ## Triage
 
 - `direct-threaded-musttail-dispatch`

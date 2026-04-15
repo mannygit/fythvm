@@ -5,4 +5,3 @@ status = "stable"
 tags = ["llvmlite", "ir", "inspection", "diff", "debugging"]
 run = "uv run python explorations/lab/ir-inspection-tooling/run.py"
 agent_authored = true
-safe_to_smoke = false

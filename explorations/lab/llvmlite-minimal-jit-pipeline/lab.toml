@@ -5,4 +5,3 @@ status = "stable"
 tags = ["llvmlite", "jit", "baseline", "ir"]
 run = "uv run python explorations/lab/llvmlite-minimal-jit-pipeline/run.py"
 agent_authored = true
-safe_to_smoke = false

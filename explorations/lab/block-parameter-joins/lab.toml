@@ -5,4 +5,3 @@ status = "stable"
 tags = ["llvmlite", "ssa", "phi", "cfg", "join"]
 run = "uv run python explorations/lab/block-parameter-joins/run.py"
 agent_authored = true
-safe_to_smoke = true

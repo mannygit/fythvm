@@ -5,4 +5,3 @@ status = "stable"
 tags = ["llvmlite", "ctypes", "interop", "jit", "abi"]
 run = "uv run python explorations/lab/llvmlite-ir-to-ctypes-bridge/run.py"
 agent_authored = true
-safe_to_smoke = false

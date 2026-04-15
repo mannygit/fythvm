@@ -23,6 +23,11 @@ useful thing to preserve is the exact API shape:
 The host harness uses `ctypes` buffers so the before/after byte patterns are visible
 alongside the emitted LLVM IR.
 
+For the hand-built contrast case, see
+[musttail-chunked-memory-ops](/Users/manny/fythvm/explorations/lab/musttail-chunked-memory-ops/README.md:1),
+which explores explicit chunked copy and compare lowering instead of LLVM's built-in
+memory intrinsics.
+
 ## How to Run
 
 ```bash

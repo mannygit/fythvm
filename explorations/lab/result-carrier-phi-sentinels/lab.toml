@@ -5,4 +5,3 @@ status = "stable"
 tags = ["llvmlite", "ssa", "phi", "search", "sentinel", "early-exit", "multi-stage"]
 run = "uv run python explorations/lab/result-carrier-phi-sentinels/run.py"
 agent_authored = true
-safe_to_smoke = true

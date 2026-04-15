@@ -35,6 +35,9 @@ The external-backed variants add the missing indirection layer:
 The stack operations themselves stay the same. What changes is where the base pointer
 and stack-pointer pointer come from.
 
+For the lower-level intrinsic side of explicit memory manipulation, see
+[llvmlite-mem-intrinsics](/Users/manny/fythvm/explorations/lab/llvmlite-mem-intrinsics/README.md:1).
+
 The raw versions are the source of truth. The Pythonic versions are only readability
 layers; they should still make the physical stack layout and any required pointer
 chasing obvious.
