@@ -2,7 +2,7 @@
 
 ## Question
 
-When does a control-flow merge need a phi node instead of a straight-line expression?
+How does a value-producing conditional, including a ternary-like shape, lower into LLVM SSA?
 
 ## Setup
 
@@ -17,6 +17,37 @@ This lab builds two tiny `i64 -> i64` functions with llvmlite:
 
 It also builds a deliberately broken merge example that reuses the branch-local value
 without a `phi`, then shows the LLVM verifier error.
+
+The source-level shape is intentionally small because the concept is small:
+
+```c
+long branch_merge(long x) {
+    return x >= 0 ? x + 10 : x - 10;
+}
+```
+
+The raw branch/merge form in the lab is the explicit CFG lowering of that value
+conditional.
+
+The SSA-ish lowering is the point of the lab:
+
+```text
+entry:
+  is_non_negative = x >= 0
+  br is_non_negative, then, else
+
+then:
+  then_value = x + 10
+  br merge
+
+else:
+  else_value = x - 10
+  br merge
+
+merge:
+  merged = phi [then_value, then], [else_value, else]
+  ret merged
+```
 
 ## How to Run
 
@@ -34,13 +65,16 @@ The output is labeled so you can compare three cases:
 - a verifier failure for the broken attempt that tries to use a branch-local value in
   the merge block without a `phi`
 
-The contrast matters. `select` is not a substitute for `phi` in general. It is only a
-good fit when both candidate values can be evaluated unconditionally. When each branch
-computes a different runtime result, the merge block needs a `phi` to select the value
-that actually came from the taken edge.
+The contrast matters. This lab is fundamentally about a ternary-sized conditional
+expression. `select` is the straight-line lowering when both candidate values are safe
+to compute eagerly. The raw and Pythonic branch/merge versions show the explicit CFG
+lowering of the same idea, where the merge block needs a `phi` to choose the value that
+actually came from the taken edge.
 
 The Pythonic variant does not hide the CFG. It only removes the repetitive
-`position_at_end` / `branch` bookkeeping that the raw version spells out manually.
+`position_at_end` / `branch` bookkeeping that the raw version spells out manually. That
+thinness is part of the lab's point. This is a low-level conditional-lowering example,
+so the Pythonic layer should stay close to the IR.
 
 ## Pattern / Takeaway
 
@@ -50,9 +84,9 @@ merge block needs one runtime value chosen by predecessor.
 Use `select` only when the choice is purely between already-safe values and you do not
 need a control-flow join.
 
-If you want a more Pythonic builder style, wrap the block plumbing in a tiny local
-helper. Keep the raw version in the file as the reference shape so the CFG is always
-easy to compare against.
+In a lab this small, a Pythonic builder style should stay thin. A tiny local helper can
+remove block-plumbing noise, but the raw version remains the source of truth because the
+main lesson is the lowering itself.
 
 ## Non-Obvious Failure Modes
 

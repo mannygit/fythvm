@@ -1,4 +1,4 @@
-"""Show when llvmlite needs a phi node at a control-flow merge."""
+"""Show how a value-producing conditional lowers into llvmlite SSA."""
 
 from __future__ import annotations
 
@@ -208,7 +208,7 @@ def main() -> None:
     samples = [-3, 0, 4]
 
     print("== Question ==")
-    print("When does a control-flow merge need a phi node instead of a straight-line expression?")
+    print("How does a value-producing conditional, including a ternary-like shape, lower into LLVM SSA?")
     print()
 
     print("== Target Triple ==")
@@ -237,13 +237,13 @@ def main() -> None:
 
     print("== What To Notice ==")
     print(
+        "This example is ternary-sized on purpose: select_merge() is the straight-line conditional form, while the branch variants show the same value choice lowered through explicit CFG and phi."
+    )
+    print(
         "The raw branch version is the source of truth: explicit blocks, explicit predecessors, explicit phi inputs."
     )
     print(
-        "The Pythonic version keeps the same CFG visible, but a tiny context-manager helper removes the branch/positioning boilerplate."
-    )
-    print(
-        "select_merge() is still only the straight-line contrast case; it works because both candidate values are safe to compute eagerly."
+        "The Pythonic version stays intentionally thin and keeps the same CFG visible; it only removes branch/positioning boilerplate because this lab is about the lowering itself, not a richer host-side protocol."
     )
 
 
