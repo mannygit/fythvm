@@ -59,6 +59,10 @@ already been seen. The early-exit path then returns the derived count as the ans
 The Pythonic layer does not hide those facts; it just makes the repeated loop setup
 easier to read.
 
+For the general mental model behind this, see
+`explorations/lab/block-parameter-joins/`. A loop header is the same pattern as any
+other join block: its entry state is reconstructed from the entry edge and the backedge.
+
 ## Pattern / Takeaway
 
 Use one phi for the traversal cursor and a separate phi for derived loop state.
@@ -67,6 +71,9 @@ the count or accumulator as the thing that records what the loop has learned so 
 
 For search-style loops, return the derived result through a separate exit phi rather
 than trying to smuggle it through the cursor variable.
+
+In block-parameter terms, the loop header conceptually takes `(cursor, count)` as its
+entry arguments, and LLVM lowers those loop-header parameters into header phis.
 
 The Pythonic variant shows that you can do this while still using a local context
 manager for the loop shape and a tiny helper for repeated pointer access.

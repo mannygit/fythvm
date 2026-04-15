@@ -76,6 +76,10 @@ The Pythonic variant does not hide the CFG. It only removes the repetitive
 thinness is part of the lab's point. This is a low-level conditional-lowering example,
 so the Pythonic layer should stay close to the IR.
 
+For the grown-up version of this idea, see
+`explorations/lab/block-parameter-joins/`. That lab treats the merge block as if it
+took block arguments and shows how LLVM lowers those arguments into phis.
+
 ## Pattern / Takeaway
 
 Use `phi` when a value is defined along multiple incoming control-flow paths and the
@@ -87,6 +91,9 @@ need a control-flow join.
 In a lab this small, a Pythonic builder style should stay thin. A tiny local helper can
 remove block-plumbing noise, but the raw version remains the source of truth because the
 main lesson is the lowering itself.
+
+This lab is the baby case of the more general block-parameter model: one merged value,
+two predecessor edges, one join block.
 
 ## Non-Obvious Failure Modes
 

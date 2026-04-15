@@ -1,0 +1,8 @@
+slug = "block-parameter-joins"
+title = "Block Parameter Joins"
+summary = "Model CFG joins as block parameters and lower them to phis at block entry."
+status = "stable"
+tags = ["llvmlite", "ssa", "phi", "cfg", "join"]
+run = "uv run python explorations/lab/block-parameter-joins/run.py"
+agent_authored = true
+safe_to_smoke = true

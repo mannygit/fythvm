@@ -58,6 +58,10 @@ The helper does not hide the CFG. It only centralizes the exit phi and the repea
 guard-to-continue bookkeeping, while the loop cursor phi and the staged
 `visible` / `same_length` / `same_value` blocks remain visible in the IR.
 
+For the general phi-threading model behind this, see
+`explorations/lab/block-parameter-joins/`. This lab is one specialization of that
+model: several predecessor threads converge on one semantic result value at the exit.
+
 ## Pattern / Takeaway
 
 Use a final result phi when a search or staged comparison logically has one answer,
@@ -72,6 +76,9 @@ check rejects early, a length check rejects early, and only then does the search
 for the deeper value comparison. Those stages can converge on one eventual answer, but
 the loop-carried phi is still only the cursor. The result phi carries the search
 result; it should not be reused to track iteration state.
+
+In block-parameter terms, the exit block conceptually takes one argument: the semantic
+answer of the search. LLVM lowers that one block parameter into the exit phi.
 
 If the raw version is the clearest reference shape, keep it in the lab and let the
 Pythonic version evolve around it. The raw version stays the truth table for the CFG;

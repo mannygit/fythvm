@@ -11,6 +11,10 @@ close out. Keep the backlog small and explicit.
   - Title: Direct-threaded interpreter dispatch with `musttail`
   - Goal: Capture the `next_fn` / `@EXECUTE` / `EXECUTE` pattern from `forth.py` and
     `forth_base.py` as a direct-threaded interpreter dispatch shape.
+  - Source in `~/fyth`: start from `src/fyth/forth.py` and `src/fyth/forth_base.py`,
+    especially the history around commits `bf07ecd`, `8e84625`, and `7945486`.
+  - What to mine: the real pattern is a threaded continuation model where builtins
+    tail-call the next interpreter step; do not reduce it to generic tail recursion.
   - Why it matters: This is one of the most distinctive patterns in `~/fyth` and a
     good example of learned LLVM control-flow design.
   - Distinct from existing labs: none of the current labs cover threaded interpreter
@@ -21,6 +25,11 @@ close out. Keep the backlog small and explicit.
   - Goal: Capture the pattern where generated functions are post-processed by
     replacing their terminator, appending a `next` block, and tail-calling a shared
     continuation.
+  - Source in `~/fyth`: start from `src/fyth/forth_base.py`, especially the history
+    around commits `bf07ecd` and `7945486`.
+  - What to mine: this is CFG surgery after function emission so existing generated
+    bodies all rejoin a common `next` trampoline; do not restate it as generic
+    "tail-call helper" code.
   - Why it matters: This is an unusual but concrete technique for retrofitting a
     common continuation onto existing emitted functions.
   - Distinct from existing labs: it is not the same as delayed export or generic tail
@@ -30,6 +39,10 @@ close out. Keep the backlog small and explicit.
   - Title: Alignment bit tricks versus branch-plus-phi
   - Goal: Capture the shift from a branchy alignment calculation to the compact
     bit-mask form `(index + 3) & -4`.
+  - Source in `~/fyth`: start from `src/fyth/memory.py`, especially the history
+    around commit `0e3e942`.
+  - What to mine: the interesting part is the learned lowering step from branchy
+    alignment logic into compact arithmetic, not just the final formula by itself.
   - Why it matters: It is a small but real lowering insight that likely came from
     experimentation rather than formal compiler training.
   - Distinct from existing labs: this is a low-level address arithmetic pattern, not a
@@ -112,6 +125,19 @@ None.
   - Takeaway: Use `phi` at real control-flow joins, and use `select` only when both
     candidate values are safe to compute eagerly in straight line.
   - Lab: `explorations/lab/ssa-phi-merge/`
+
+- `block-parameter-joins`
+  - Title: Block parameter joins
+  - Goal: Capture the general phi model where successor blocks conceptually take
+    arguments and LLVM lowers those block parameters into phis at block entry.
+  - Why it matters: The useful abstraction is not "a ternary with a phi" but
+    "threading block-entry state through joins, continuations, and loop headers."
+  - Success signal: The lab demonstrates `select` as the no-join degenerate case, a
+    zero-live-in CFG join, a multi-value tuple join, and a named-state wrapper over
+    the same phi lowering.
+  - Takeaway: Treat phis as lowered block parameters: predecessors contribute edge
+    values, and the join block reconstructs its entry environment one field at a time.
+  - Lab: `explorations/lab/block-parameter-joins/`
 
 - `ir-inspection-tooling`
   - Title: IR inspection and debugging helpers
