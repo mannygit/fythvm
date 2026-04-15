@@ -5,6 +5,31 @@ close out. Keep the backlog small and explicit.
 
 ## Ready
 
+- `ctypes-schema-to-layout-codegen`
+  - Title: ctypes schema to generated layout codegen
+  - Goal: Capture the pattern where a canonical `ctypes` schema drives generated
+    llvmlite layout/view helpers, with a clear regeneration path and a strict "do not
+    edit the generated file" boundary.
+  - Why it matters: The repo now depends on this pattern in real package code, so the
+    abstraction boundary should be documented and stress-tested explicitly instead of
+    remaining an implicit one-off refactor.
+
+- `logical-bitfield-views`
+  - Title: Logical bitfield views over physical storage
+  - Goal: Show how to layer named logical accessors over packed storage fields such as
+    `CodeField`, instead of stopping at the physical storage-unit view.
+  - Why it matters: The struct reification work already proved the storage side; the
+    next abstraction step is making those packed fields pleasant to consume without
+    lying about the underlying layout.
+
+- `dictionary-construction-abstractions`
+  - Title: Dictionary construction abstractions
+  - Goal: Refine the new pure Python + ctypes dictionary runtime into cleaner word
+    creation, offset derivation, and lookup/tracing abstractions before any execution
+    machinery is layered on top.
+  - Why it matters: Getting the dictionary data model and helper boundaries right now
+    will make later interpreter work much easier and less likely to force rewrites.
+
 - `llvmlite-assume-and-overflow-intrinsics`
   - Title: llvmlite assume and overflow intrinsics
   - Goal: Show how `llvm.assume` and the integer overflow intrinsics are exposed in
@@ -39,6 +64,9 @@ close out. Keep the backlog small and explicit.
     tail-call the next interpreter step; do not reduce it to generic tail recursion.
   - Why it matters: This is one of the most distinctive patterns in `~/fyth` and a
     good example of learned LLVM control-flow design.
+  - Current priority: Deprioritized until the dictionary/schema/layout abstractions
+    settle. The execution shape is still valuable, but it should not drive the next
+    round of structural decisions.
   - Distinct from existing labs: none of the current labs cover threaded interpreter
     dispatch or tail-called continuation threading.
 
@@ -54,6 +82,8 @@ close out. Keep the backlog small and explicit.
     "tail-call helper" code.
   - Why it matters: This is an unusual but concrete technique for retrofitting a
     common continuation onto existing emitted functions.
+  - Current priority: Keep behind the schema/dictionary abstraction work. It is more
+    useful once the execution model is ready to stabilize.
   - Distinct from existing labs: it is not the same as delayed export or generic tail
     calls; it is specifically about CFG rewriting after function generation.
 
