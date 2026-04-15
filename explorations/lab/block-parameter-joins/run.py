@@ -99,7 +99,11 @@ class StateJoin:
 @contextmanager
 def in_block(builder: ir.IRBuilder, block: ir.Block):
     builder.position_at_end(block)
-    yield
+    yield builder.basic_block
+
+
+def new_builder(function: ir.Function, name: str) -> ir.IRBuilder:
+    return ir.IRBuilder(function.append_basic_block(name))
 
 
 def _configure_llvm() -> None:
@@ -183,12 +187,11 @@ def _emit_tuple_join_raw(module: ir.Module) -> None:
 def _emit_zero_live_in_join_pythonic(module: ir.Module) -> None:
     fn_ty = ir.FunctionType(I64, [I64])
     func = ir.Function(module, fn_ty, name="zero_live_in_join_pythonic")
-    entry = func.append_basic_block("entry")
+    builder = new_builder(func, "entry")
     then_block = func.append_basic_block("then")
     else_block = func.append_basic_block("else")
     merge_block = func.append_basic_block("merge")
 
-    builder = ir.IRBuilder(entry)
     is_even = builder.icmp_unsigned("==", builder.and_(func.args[0], ir.Constant(I64, 1)), ir.Constant(I64, 0))
     builder.cbranch(is_even, then_block, else_block)
 
@@ -209,12 +212,11 @@ def _emit_zero_live_in_join_pythonic(module: ir.Module) -> None:
 def _emit_tuple_join_pythonic(module: ir.Module) -> None:
     fn_ty = ir.FunctionType(I64, [I64, I64, I64])
     func = ir.Function(module, fn_ty, name="tuple_join_pythonic")
-    entry = func.append_basic_block("entry")
+    builder = new_builder(func, "entry")
     then_block = func.append_basic_block("then")
     else_block = func.append_basic_block("else")
     merge_block = func.append_basic_block("merge")
 
-    builder = ir.IRBuilder(entry)
     is_non_negative = builder.icmp_signed(">=", func.args[0], ir.Constant(I64, 0), name="is_non_negative")
     builder.cbranch(is_non_negative, then_block, else_block)
 
@@ -240,12 +242,11 @@ def _emit_tuple_join_pythonic(module: ir.Module) -> None:
 def _emit_state_join_pythonic(module: ir.Module) -> None:
     fn_ty = ir.FunctionType(I64, [I64, I64, I64])
     func = ir.Function(module, fn_ty, name="state_join_pythonic")
-    entry = func.append_basic_block("entry")
+    builder = new_builder(func, "entry")
     then_block = func.append_basic_block("then")
     else_block = func.append_basic_block("else")
     merge_block = func.append_basic_block("merge")
 
-    builder = ir.IRBuilder(entry)
     is_non_negative = builder.icmp_signed(">=", func.args[0], ir.Constant(I64, 0), name="is_non_negative")
     builder.cbranch(is_non_negative, then_block, else_block)
 

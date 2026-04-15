@@ -65,6 +65,10 @@ outgoing environment and transfers control to the successor carrying that state,
 than manually capturing the predecessor block, branching, and then calling
 `add_incoming(...)` as a separate action.
 
+`in_block(...)` now yields the active block when the calling code needs it, and the
+lab also uses a tiny create-and-enter helper for the immediate-use case where a block
+does not need to exist as a forward branch target before emission begins.
+
 ## Pattern / Takeaway
 
 The general pattern is not "a ternary with a phi." The general pattern is: blocks
@@ -86,6 +90,10 @@ environment such as interpreter state.
 The next layer above `add_incoming(...)` is edge/state transfer. The useful semantic
 operation is "branch to this successor carrying this environment," and
 `branch_from_here(...)` expresses exactly that without turning the lab into a CFG DSL.
+
+The block-entry helpers are intentionally narrower. They improve readability for
+"create this block and start emitting in it now" or "enter this already-declared
+block," but they do not replace explicit predeclaration of branch targets.
 
 ## Non-Obvious Failure Modes
 
@@ -114,6 +122,10 @@ useful lowering primitive, but it is not yet the semantic operation most control
 code wants to express. The more natural unit is edge transfer: compute outgoing state,
 then branch carrying that state.
 
+It is equally easy to overgeneralize the block-entry helper. Sibling CFG targets often
+must exist before an earlier `cbranch(...)` or `branch(...)` can name them, so not all
+block creation can be collapsed into a single "create and enter" step.
+
 ## Apply When
 
 Use this pattern when:
@@ -138,6 +150,9 @@ tuple join should remain easy to reconstruct from the lab output.
 Do not jump straight to a free-form `goto(block, state)` DSL in this lab. That is the
 next abstraction pressure point, but this lab keeps the successor join explicit on the
 helper itself.
+
+Do not use the create-and-enter helper for blocks that need to be declared as forward
+branch targets first. Predeclare those blocks explicitly and then enter them later.
 
 ## Next Questions
 
