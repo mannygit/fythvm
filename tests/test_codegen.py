@@ -6,7 +6,14 @@ import ctypes
 
 from llvmlite import binding, ir
 
-from fythvm.codegen import ContextStructStackAccess, Join, SharedExit, compile_ir_module, configure_llvm
+from fythvm.codegen import (
+    ContextStructStackAccess,
+    Join,
+    ParamLoop,
+    SharedExit,
+    compile_ir_module,
+    configure_llvm,
+)
 
 
 I1 = ir.IntType(1)
@@ -90,6 +97,61 @@ def test_join_treats_merge_block_as_block_parameters() -> None:
     join_fn = ctypes.CFUNCTYPE(ctypes.c_longlong, ctypes.c_bool)(compiled.function_address("join_fn"))
     assert join_fn(True) == 30
     assert join_fn(False) == 300
+
+
+def test_param_loop_carries_one_value_through_loop_header() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="param_loop_one_value")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(module, ir.FunctionType(I64, []), name="count_to_three")
+
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    loop = ParamLoop(builder, "count", [("i", I64)])
+    loop.begin(I64(0))
+
+    with loop.head() as (i,):
+        done = builder.icmp_unsigned(">=", i, I64(3), name="done")
+        builder.cbranch(done, loop.exit_block, loop.body_block)
+
+    with loop.body():
+        next_i = builder.add(i, I64(1), name="next_i")
+        loop.continue_from_here(next_i)
+
+    with loop.exit():
+        builder.ret(i)
+
+    compiled = compile_ir_module(module)
+    count_to_three = ctypes.CFUNCTYPE(ctypes.c_longlong)(compiled.function_address("count_to_three"))
+    assert count_to_three() == 3
+
+
+def test_param_loop_carries_multiple_values_through_loop_header() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="param_loop_two_values")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(module, ir.FunctionType(I64, []), name="sum_zero_to_two")
+
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    loop = ParamLoop(builder, "sum_loop", [("i", I64), ("acc", I64)])
+    loop.begin(I64(0), I64(0))
+
+    with loop.head() as (i, acc):
+        done = builder.icmp_unsigned(">=", i, I64(3), name="done")
+        builder.cbranch(done, loop.exit_block, loop.body_block)
+
+    with loop.body():
+        next_acc = builder.add(acc, i, name="next_acc")
+        next_i = builder.add(i, I64(1), name="next_i")
+        loop.continue_from_here(next_i, next_acc)
+
+    with loop.exit():
+        builder.ret(acc)
+
+    compiled = compile_ir_module(module)
+    sum_zero_to_two = ctypes.CFUNCTYPE(ctypes.c_longlong)(compiled.function_address("sum_zero_to_two"))
+    assert sum_zero_to_two() == 3
 
 
 def test_context_struct_stack_access_reaches_stack_and_sp_fields() -> None:

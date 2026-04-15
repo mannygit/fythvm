@@ -9,12 +9,15 @@ from typing import Sequence
 from llvmlite import binding, ir
 
 from .codegen import (
+    FetchedCell,
     I16,
     I16_PTR,
     I32,
     ContextStructStackAccess,
+    ParamLoop,
     SharedExit,
     compile_ir_module,
+    emit_tagged_cell_dispatch,
     configure_llvm,
 )
 
@@ -151,51 +154,42 @@ class CalculatorEmitter:
         self.cells_ptr, self.cell_count, self.ctx_ptr, self.out_result_ptr = self.function.args
         self.stack = ContextStructStackAccess(self.ctx_ptr)
         self.entry_block = self.function.append_basic_block("entry")
-        self.loop_block = self.function.append_basic_block("loop")
-        self.dispatch_block = self.function.append_basic_block("dispatch")
+        self.builder = ir.IRBuilder(self.entry_block)
+        self.loop = ParamLoop(self.builder, "eval", [("ip", I32)])
         self.literal_check_block = self.function.append_basic_block("literal.check")
         self.literal_store_block = self.function.append_basic_block("literal.store")
         self.opcode_block = self.function.append_basic_block("opcode.dispatch")
-        self.missing_exit_block = self.function.append_basic_block("missing_exit")
         self.underflow_block = self.function.append_basic_block("underflow")
         self.divzero_block = self.function.append_basic_block("divzero")
         self.bad_opcode_block = self.function.append_basic_block("bad_opcode")
         self.bad_exit_shape_block = self.function.append_basic_block("bad_exit_shape")
         self.overflow_block = self.function.append_basic_block("overflow")
         self.ok_block = self.function.append_basic_block("ok")
-        self.builder = ir.IRBuilder(self.entry_block)
         self.exit = SharedExit(self.function, [("status", I32), ("result", I16)])
-        self.ip_phi: ir.PhiInstr | None = None
-        self.next_ip: ir.Value | None = None
-        self.current_cell: ir.Value | None = None
-        self.switch: ir.instructions.SwitchInstr | None = None
 
-    def emit_skeleton(self) -> None:
+    def emit_loop_head(self) -> ir.Value:
         self.stack.store_sp(self.builder, I32(STACK_SIZE))
-        self.builder.branch(self.loop_block)
+        self.loop.begin(I32(0))
 
-        self.builder.position_at_end(self.loop_block)
-        self.ip_phi = self.builder.phi(I32, name="ip")
-        self.ip_phi.add_incoming(I32(0), self.entry_block)
-        reached_end = self.builder.icmp_signed(">=", self.ip_phi, self.cell_count, name="reached_end")
-        self.builder.cbranch(reached_end, self.missing_exit_block, self.dispatch_block)
+        with self.loop.head() as (ip,):
+            reached_end = self.builder.icmp_signed(">=", ip, self.cell_count, name="reached_end")
+            self.builder.cbranch(reached_end, self.loop.exit_block, self.loop.body_block)
+            return ip
 
-        self.builder.position_at_end(self.dispatch_block)
-        cell_ptr = self.builder.gep(self.cells_ptr, [self.ip_phi], inbounds=True, name="cell_ptr")
-        self.current_cell = self.builder.load(cell_ptr, name="cell")
-        self.next_ip = self.builder.add(self.ip_phi, I32(1), name="next_ip")
-        is_literal = self.builder.icmp_unsigned(
-            "==",
-            self.builder.and_(self.current_cell, I16(TAG_MASK), name="tag_bits"),
-            I16(0),
-            name="is_literal",
-        )
-        self.builder.cbranch(is_literal, self.literal_check_block, self.opcode_block)
+    def emit_dispatch(self, ip: ir.Value) -> FetchedCell:
+        with self.loop.body():
+            return emit_tagged_cell_dispatch(
+                self.builder,
+                self.cells_ptr,
+                ip,
+                literal_target=self.literal_check_block,
+                opcode_target=self.opcode_block,
+                cell_type=I16,
+                index_type=I32,
+                tag_mask=TAG_MASK,
+            )
 
-    def emit_literal_handler(self) -> None:
-        assert self.ip_phi is not None
-        assert self.next_ip is not None
-        assert self.current_cell is not None
+    def emit_literal_handler(self, step: FetchedCell) -> None:
 
         self.builder.position_at_end(self.literal_check_block)
         current_sp = self.stack.load_sp(self.builder)
@@ -205,25 +199,22 @@ class CalculatorEmitter:
         self.builder.position_at_end(self.literal_store_block)
         current_sp = self.stack.load_sp(self.builder)
         new_sp = self.builder.sub(current_sp, I32(1), name="new_sp")
-        self.builder.store(self.current_cell, self.stack.slot(self.builder, new_sp))
+        self.builder.store(step.current_cell, self.stack.slot(self.builder, new_sp))
         self.stack.store_sp(self.builder, new_sp)
-        self.ip_phi.add_incoming(self.next_ip, self.literal_store_block)
-        self.builder.branch(self.loop_block)
+        self.loop.continue_from_here(step.next_ip)
 
     def emit_binary_handler(
         self,
+        switch: ir.instructions.SwitchInstr,
+        step: FetchedCell,
         opcode_value: int,
         name: str,
         operation,
         *,
         zero_sensitive: bool = False,
     ) -> None:
-        assert self.switch is not None
-        assert self.ip_phi is not None
-        assert self.next_ip is not None
-
         check_block = self.function.append_basic_block(f"{name}.check")
-        self.switch.add_case(I16(opcode_value), check_block)
+        switch.add_case(I16(opcode_value), check_block)
 
         apply_block = self.function.append_basic_block(f"{name}.apply")
         self.builder.position_at_end(check_block)
@@ -248,13 +239,10 @@ class CalculatorEmitter:
         result = operation(self.builder, lhs, rhs)
         self.builder.store(result, self.stack.slot(self.builder, lhs_index, name=f"{name}_result_ptr"))
         self.stack.store_sp(self.builder, lhs_index)
-        self.ip_phi.add_incoming(self.next_ip, apply_block)
-        self.builder.branch(self.loop_block)
+        self.loop.continue_from_here(step.next_ip)
 
-    def emit_exit_handler(self) -> None:
-        assert self.switch is not None
-
-        self.switch.add_case(I16(OP_EXIT), self.ok_block)
+    def emit_exit_handler(self, switch: ir.instructions.SwitchInstr) -> None:
+        switch.add_case(I16(OP_EXIT), self.ok_block)
 
         self.builder.position_at_end(self.ok_block)
         current_sp = self.stack.load_sp(self.builder)
@@ -270,7 +258,7 @@ class CalculatorEmitter:
 
     def emit_error_blocks(self) -> None:
         for block, status in (
-            (self.missing_exit_block, STATUS_MISSING_EXIT),
+            (self.loop.exit_block, STATUS_MISSING_EXIT),
             (self.underflow_block, STATUS_STACK_UNDERFLOW),
             (self.divzero_block, STATUS_DIVIDE_BY_ZERO),
             (self.bad_opcode_block, STATUS_BAD_OPCODE),
@@ -281,29 +269,33 @@ class CalculatorEmitter:
             self.exit.remember(self.builder, I32(status), I16(0))
 
     def emit(self) -> None:
-        self.emit_skeleton()
-        self.emit_literal_handler()
+        ip = self.emit_loop_head()
+        step = self.emit_dispatch(ip)
+        self.emit_literal_handler(step)
 
         self.builder.position_at_end(self.opcode_block)
-        assert self.current_cell is not None
-        self.switch = self.builder.switch(self.current_cell, self.bad_opcode_block)
+        switch = self.builder.switch(step.current_cell, self.bad_opcode_block)
 
-        self.emit_binary_handler(OP_ADD, "add", lambda builder, lhs, rhs: builder.add(lhs, rhs, name="sum"))
-        self.emit_binary_handler(OP_SUB, "sub", lambda builder, lhs, rhs: builder.sub(lhs, rhs, name="diff"))
-        self.emit_binary_handler(OP_MUL, "mul", lambda builder, lhs, rhs: builder.mul(lhs, rhs, name="product"))
+        self.emit_binary_handler(switch, step, OP_ADD, "add", lambda builder, lhs, rhs: builder.add(lhs, rhs, name="sum"))
+        self.emit_binary_handler(switch, step, OP_SUB, "sub", lambda builder, lhs, rhs: builder.sub(lhs, rhs, name="diff"))
+        self.emit_binary_handler(switch, step, OP_MUL, "mul", lambda builder, lhs, rhs: builder.mul(lhs, rhs, name="product"))
         self.emit_binary_handler(
+            switch,
+            step,
             OP_DIV,
             "div",
             lambda builder, lhs, rhs: builder.sdiv(lhs, rhs, name="quotient"),
             zero_sensitive=True,
         )
         self.emit_binary_handler(
+            switch,
+            step,
             OP_MOD,
             "mod",
             lambda builder, lhs, rhs: builder.srem(lhs, rhs, name="remainder"),
             zero_sensitive=True,
         )
-        self.emit_exit_handler()
+        self.emit_exit_handler(switch)
         self.emit_error_blocks()
 
         status_phi, result_phi = self.exit.finish()
