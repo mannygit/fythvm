@@ -29,6 +29,10 @@ an isolated child process, use:
 uv run python explorations/lab/mcjit-global-ctor-dtor-negative-control/run.py --attempt-unsafe-path
 ```
 
+On macOS, that flag is intentionally skipped. The Mach-O MCJIT ctor/dtor path is
+already known to segfault there, so the lab suppresses the noisy child crash and keeps
+the safe IR/counter evidence as the primary result.
+
 Supported native host development is available on Intel macOS with Python 3.14.
 Other local hosts should use Docker:
 
@@ -45,9 +49,9 @@ The default output shows:
 - safe zero-valued counters read back from the JITed module
 - a clear statement that no ctor/dtor execution was attempted in the parent process
 
-The opt-in child-process path shows the quarantined execution attempt separately.
-On macOS, a nonzero exit or signal termination is the expected-failure shape for this
-negative control, not a lab bug.
+The opt-in child-process path shows the quarantined execution attempt separately on
+non-macOS platforms. On macOS, the lab reports an intentional skip instead of launching
+the known-crashing child process.
 
 ## Pattern / Takeaway
 
@@ -57,7 +61,7 @@ recipe:
 1. emit the unsupported shape clearly
 2. prove the safe observation path in the parent process
 3. isolate any runtime attempt in a subprocess
-4. treat failure on macOS as part of the lesson, not as a crash in the main lab
+4. on macOS, suppress the already-known noisy crash and keep the safe evidence path
 
 That keeps the negative control useful without making routine lab runs dangerous.
 
@@ -71,7 +75,8 @@ does not mean the ctor/dtor path is a good idea on MCJIT/Mach-O.
 Another easy mistake is assuming the ctor/dtor arrays behave like normal loader
 callbacks on every platform. They do not. This lab exists because the macOS path is
 the risky one, and the failure mode can be a crash rather than a clean Python
-exception.
+exception. That is why the unsafe flag is skipped on macOS instead of replaying the
+same noisy failure every time.
 
 Do not let a negative-control note become a production instruction. If the lab is
 read later, the point should still be "this path is unsupported and quarantined," not

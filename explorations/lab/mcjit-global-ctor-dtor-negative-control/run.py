@@ -183,14 +183,31 @@ def parent_main(attempt_unsafe_path: bool) -> None:
     )
 
     if attempt_unsafe_path:
+        if host_system == "Darwin":
+            print_block(
+                "Quarantined Attempt",
+                "\n".join(
+                    [
+                        "status: skipped on macOS",
+                        "reason: the unsupported MCJIT ctor/dtor runtime path is already known to segfault on Mach-O and adds only noise here.",
+                        "safe evidence retained: the parent process still shows the emitted llvm.global_ctors / llvm.global_dtors shape and the untouched counters above.",
+                    ]
+                ),
+            )
+            print_block(
+                "Takeaway",
+                "Keep the ctor/dtor path as a negative control: document the IR shape, keep the default run safe, and suppress the known-noisy macOS crash path.",
+            )
+            return
+
         script_path = Path(__file__).resolve()
         returncode, stdout, stderr = run_quarantined_attempt(script_path)
         if returncode == 0:
             status = "child completed without a crash in this environment, but the path remains unsupported"
         elif returncode < 0:
-            status = f"child terminated by signal {-returncode}; on macOS that is the expected-failure shape for this negative control"
+            status = f"child terminated by signal {-returncode}; this is the expected-failure shape for the quarantined negative control"
         else:
-            status = f"child exited nonzero with code {returncode}; on macOS that is the expected-failure shape for this negative control"
+            status = f"child exited nonzero with code {returncode}; this is the expected-failure shape for the quarantined negative control"
 
         print_block(
             "Quarantined Attempt",
