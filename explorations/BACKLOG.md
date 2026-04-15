@@ -166,6 +166,20 @@ None.
     subclasses own only the IR pointer derivation for their storage layout.
   - Lab: `explorations/lab/context-struct-stack-storage/`
 
+- `cell-rpn-calculator`
+  - Title: Raw-cell RPN calculator
+  - Goal: Interpret tagged 16-bit cells through one loop-carried instruction pointer,
+    one context-backed stack, and one explicit `{status, result}` exit contract.
+  - Why it matters: It turns the stack and phi learnings into a real but still tiny
+    machine instead of another isolated primitive.
+  - Success signal: The lab runs both raw and Pythonic evaluator variants, handles
+    `+ - * / % =`, and shows matching success and failure traces for raw cell
+    programs.
+  - Takeaway: Keep the program as raw cells, the stack in a passed context, and the
+    exit contract explicit; let the Pythonic layer remove only repetitive pointer,
+    dispatch, and exit bookkeeping.
+  - Lab: `explorations/lab/cell-rpn-calculator/`
+
 - `ssa-phi-merge`
   - Title: SSA / phi merge patterns in llvmlite
   - Goal: Show how to model a value that comes from multiple predecessor blocks.

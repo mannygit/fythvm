@@ -1,0 +1,7 @@
+slug = "cell-rpn-calculator"
+title = "Cell RPN Calculator"
+summary = "Build a tiny RPN calculator that interprets raw 16-bit cells at runtime, keeps its stack in a passed context struct, and exits only through '=' with an explicit status/result contract."
+status = "stable"
+tags = ["llvmlite", "jit", "interpreter", "rpn", "stack", "context", "phi"]
+run = "uv run python explorations/lab/cell-rpn-calculator/run.py"
+agent_authored = true
