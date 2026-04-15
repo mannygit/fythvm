@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 import tomllib
 
 
@@ -61,7 +62,10 @@ def test_exploration_labs_follow_structure_and_metadata_contract() -> None:
         assert metadata["slug"] == lab_dir.name
         assert metadata["status"] in ALLOWED_STATUSES
         assert isinstance(metadata["tags"], list)
-        assert metadata["run"] == f"uv run python explorations/lab/{lab_dir.name}/run.py"
+        assert isinstance(metadata["run"], str) and metadata["run"].strip()
+        run_argv = shlex.split(metadata["run"])
+        assert run_argv[:3] == ["uv", "run", "python"]
+        assert run_argv[-1] == f"explorations/lab/{lab_dir.name}/run.py"
 
 
 def test_exploration_labs_include_required_readme_sections() -> None:
