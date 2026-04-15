@@ -27,13 +27,6 @@ close out. Keep the backlog small and explicit.
   - Why it matters: The repo now has both patterns, but not yet one place that
     explains when you would pick one over the other.
 
-- `context-struct-stack-storage`
-  - Title: Context-struct-backed stack storage
-  - Goal: Extend the generalized stack lab so stack base and stack pointer come from a
-    context struct rather than pointer globals.
-  - Why it matters: It is the natural next step after separating stack ops from stack
-    storage ownership.
-
 ## Triage
 
 - `direct-threaded-musttail-dispatch`
@@ -158,6 +151,20 @@ None.
   - Takeaway: Keep the memory model and the logical stack model visible at the same
     time so stack semantics stay interpretable.
   - Lab: `explorations/lab/llvmlite-jit-stack-operations/`
+
+- `context-struct-stack-storage`
+  - Title: Context-struct-backed stack storage
+  - Goal: Make the abstract stack-op layer explicit and show concrete emitters that
+    derive stack pointers from module globals, pointer globals, or context-struct
+    fields.
+  - Why it matters: This matches the direction the older `~/fyth` stack/layout code
+    was already taking once stacks lived inside a larger runtime context.
+  - Success signal: The lab shows one raw context-struct source-of-truth emitter plus
+    Pythonic subclasses for all three storage strategies, and all variants produce the
+    same stack trace.
+  - Takeaway: Keep stack semantics in one abstract emitter layer and let concrete
+    subclasses own only the IR pointer derivation for their storage layout.
+  - Lab: `explorations/lab/context-struct-stack-storage/`
 
 - `ssa-phi-merge`
   - Title: SSA / phi merge patterns in llvmlite

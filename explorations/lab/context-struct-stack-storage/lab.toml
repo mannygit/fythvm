@@ -1,0 +1,7 @@
+slug = "context-struct-stack-storage"
+title = "Context Struct Stack Storage"
+summary = "Show an abstract stack-op emitter layer whose concrete subclasses derive stack pointers from module globals, pointer globals, or context-struct fields."
+status = "stable"
+tags = ["llvmlite", "jit", "stack", "context", "memory", "abstraction"]
+run = "uv run python explorations/lab/context-struct-stack-storage/run.py"
+agent_authored = true
