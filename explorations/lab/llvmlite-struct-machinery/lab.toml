@@ -1,0 +1,7 @@
+slug = "llvmlite-struct-machinery"
+title = "llvmlite Struct Machinery"
+summary = "Demonstrate literal versus identified structs, packed layout, field GEP access, and host-visible ctypes bridging through one live JIT module."
+status = "stable"
+tags = ["llvmlite", "structs", "layout", "ctypes", "abi"]
+run = "uv run python explorations/lab/llvmlite-struct-machinery/run.py"
+agent_authored = true

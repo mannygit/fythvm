@@ -140,6 +140,20 @@ None.
     IRBuilder helper methods.
   - Lab: `explorations/lab/llvmlite-mem-intrinsics/`
 
+- `llvmlite-struct-machinery`
+  - Title: llvmlite struct machinery
+  - Goal: Show how literal versus identified structs, packed layout, field GEPs, and
+    host-visible ctypes bridging actually work in llvmlite.
+  - Why it matters: Several labs already depend on structs, but the struct machinery
+    itself was still implicit and easy to misunderstand.
+  - Success signal: The lab prints emitted IR, concrete ABI layout summaries, live
+    ctypes-visible proof for literal/identified/packed structs, and captures the
+    identified-struct packed-layout limitation explicitly.
+  - Takeaway: Literal versus identified mostly changes naming and body-definition
+    style; packed layout changes ABI offsets and size, and the host bridge must match
+    that packedness exactly.
+  - Lab: `explorations/lab/llvmlite-struct-machinery/`
+
 - `llvmlite-jit-stack-operations`
   - Title: llvmlite JIT stack operations
   - Goal: Rebuild the old `~/fyth` stack idea as a minimal JITed downward-growing
