@@ -19,14 +19,14 @@ def configure_llvm() -> None:
 
 
 @dataclass
-class CompiledVariant:
+class CompiledModule:
     llvm_ir: str
     engine: binding.ExecutionEngine
     clamp: CALLABLE_I64_TO_I64
     classify: CALLABLE_I64_TO_I64
 
 
-def compile_variant(module: ir.Module) -> CompiledVariant:
+def compile_module(module: ir.Module) -> CompiledModule:
     """Verify a module and return the IR, live engine, and callable functions."""
 
     llvm_ir = str(module)
@@ -37,7 +37,7 @@ def compile_variant(module: ir.Module) -> CompiledVariant:
     target_machine = target.create_target_machine()
     engine = binding.create_mcjit_compiler(parsed, target_machine)
     engine.finalize_object()
-    return CompiledVariant(
+    return CompiledModule(
         llvm_ir=llvm_ir,
         engine=engine,
         clamp=CALLABLE_I64_TO_I64(engine.get_function_address("clamp_0_10")),
@@ -245,8 +245,8 @@ def build_pythonic_variant_module() -> ir.Module:
 def main() -> None:
     configure_llvm()
 
-    raw_variant = compile_variant(build_raw_variant_module())
-    pythonic_variant = compile_variant(build_pythonic_variant_module())
+    raw_variant = compile_module(build_raw_variant_module())
+    pythonic_variant = compile_module(build_pythonic_variant_module())
 
     clamp_samples = [-7, 0, 5, 12]
     classification_samples = [-4, 0, 7, 12]

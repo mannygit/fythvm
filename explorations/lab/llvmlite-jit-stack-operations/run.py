@@ -13,7 +13,7 @@ I32 = ir.IntType(32)
 I64 = ir.IntType(64)
 
 
-def ensure_llvm_initialized() -> None:
+def configure_llvm() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
 
@@ -294,7 +294,7 @@ def run_stack_scenario(compiled: CompiledModule) -> tuple[list[str], int]:
 
 
 def main() -> None:
-    ensure_llvm_initialized()
+    configure_llvm()
     raw = compile_module("raw", build_raw_module())
     pythonic = compile_module("pythonic", build_pythonic_module())
 

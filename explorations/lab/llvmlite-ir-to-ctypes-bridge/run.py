@@ -11,7 +11,7 @@ I32 = ir.IntType(32)
 I64 = ir.IntType(64)
 
 
-def ensure_llvm_initialized() -> None:
+def configure_llvm() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
 
@@ -90,7 +90,7 @@ def build_module() -> tuple[ir.Module, ir.LiteralStructType, ir.FunctionType]:
 
 
 def main() -> None:
-    ensure_llvm_initialized()
+    configure_llvm()
     module, pair_type, function_type = build_module()
     llvm_ir = str(module)
     parsed = binding.parse_assembly(llvm_ir)

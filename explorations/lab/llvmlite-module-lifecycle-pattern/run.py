@@ -89,7 +89,7 @@ def positioned_at(builder: ir.IRBuilder, block: ir.Block):
     yield builder
 
 
-def ensure_llvm_initialized() -> None:
+def configure_llvm() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
 
@@ -257,7 +257,7 @@ class LifecycleRegistry:
     """Own the live module registry and callback validity rules."""
 
     def __init__(self, module_builder: Callable[[str, int], ir.Module]) -> None:
-        ensure_llvm_initialized()
+        configure_llvm()
         backing_module = binding.parse_assembly("")
         target = binding.Target.from_default_triple()
         target_machine = target.create_target_machine()

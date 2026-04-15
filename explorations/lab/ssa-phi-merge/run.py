@@ -56,7 +56,7 @@ class BranchMergeShape:
         return merged
 
 
-def _configure_llvm() -> None:
+def configure_llvm() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
 
@@ -199,7 +199,7 @@ def show_invalid_module_failure() -> str:
 
 
 def main() -> None:
-    _configure_llvm()
+    configure_llvm()
     compiled = compile_module(build_module())
     raw_branch = call_i64_i64(compiled.raw_branch_addr)
     pythonic_branch = call_i64_i64(compiled.pythonic_branch_addr)

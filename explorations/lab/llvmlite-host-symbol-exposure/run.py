@@ -55,7 +55,7 @@ class HostSymbolHarness:
         self.callback = None
 
 
-def ensure_llvm_initialized() -> None:
+def configure_llvm() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
 
@@ -168,7 +168,7 @@ def print_variant(run: VariantRun) -> None:
 
 
 def main() -> None:
-    ensure_llvm_initialized()
+    configure_llvm()
     argument = 7
     raw = run_raw_variant(argument)
     pythonic = run_pythonic_variant(argument)

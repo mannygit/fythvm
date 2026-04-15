@@ -17,7 +17,7 @@ SEARCH_RECORD_PTR = SEARCH_RECORD_TYPE.as_pointer()
 
 
 @dataclass(frozen=True)
-class CompiledSearchDemo:
+class CompiledModule:
     llvm_ir: str
     engine: binding.ExecutionEngine
     raw_search_addr: int
@@ -146,7 +146,7 @@ class StagedResultSearch:
         return result
 
 
-def _configure_llvm() -> None:
+def configure_llvm() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
 
@@ -318,7 +318,7 @@ def build_search_module() -> ir.Module:
     return module
 
 
-def compile_module(module: ir.Module) -> CompiledSearchDemo:
+def compile_module(module: ir.Module) -> CompiledModule:
     llvm_ir = str(module)
     parsed = binding.parse_assembly(llvm_ir)
     parsed.verify()
@@ -328,7 +328,7 @@ def compile_module(module: ir.Module) -> CompiledSearchDemo:
     engine = binding.create_mcjit_compiler(parsed, target_machine)
     engine.finalize_object()
 
-    return CompiledSearchDemo(
+    return CompiledModule(
         llvm_ir=llvm_ir,
         engine=engine,
         raw_search_addr=engine.get_function_address("find_first_ge_raw"),
@@ -383,7 +383,7 @@ def as_records(rows: list[tuple[int, int, int]]) -> ctypes.Array[SearchRecord]:
 
 
 def main() -> None:
-    _configure_llvm()
+    configure_llvm()
     compiled = compile_module(build_search_module())
     raw_search = make_search_fn(compiled.raw_search_addr)
     pythonic_search = make_search_fn(compiled.pythonic_search_addr)

@@ -28,7 +28,7 @@ class CounterSnapshot:
     dtor_hits: int
 
 
-def ensure_llvm_initialized() -> None:
+def configure_llvm() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
 
@@ -147,7 +147,7 @@ def print_block(title: str, body: str) -> None:
 
 
 def parent_main(attempt_unsafe_path: bool) -> None:
-    ensure_llvm_initialized()
+    configure_llvm()
     module = build_negative_control_module()
     llvm_ir, engine = compile_module(module)
 
@@ -219,7 +219,7 @@ def parent_main(attempt_unsafe_path: bool) -> None:
 
 
 def child_main() -> None:
-    ensure_llvm_initialized()
+    configure_llvm()
     module = build_negative_control_module()
     llvm_ir, engine = compile_module(module)
 

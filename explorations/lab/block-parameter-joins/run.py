@@ -106,7 +106,7 @@ def new_builder(function: ir.Function, name: str) -> ir.IRBuilder:
     return ir.IRBuilder(function.append_basic_block(name))
 
 
-def _configure_llvm() -> None:
+def configure_llvm() -> None:
     binding.initialize_native_target()
     binding.initialize_native_asmprinter()
 
@@ -318,7 +318,7 @@ def call_i64_i64_i64_i64(address: int) -> ctypes._CFuncPtr:
 
 
 def main() -> None:
-    _configure_llvm()
+    configure_llvm()
     compiled = compile_module(build_module())
     select_merge = call_i64_i64(compiled.select_addr)
     zero_join_raw = call_i64_i64(compiled.zero_join_raw_addr)
