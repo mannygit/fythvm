@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Hashable
+from typing import ClassVar
 from dataclasses import dataclass
 
 from llvmlite import ir
@@ -182,6 +184,8 @@ class BoundStructView:
 class StructHandle:
     """A named owner for a struct layout plus its bound view type."""
 
+    _identified_registry: ClassVar[dict[Hashable, "StructHandle"]] = {}
+
     label: str
     ir_type: ir.Type
     view_type: type[BoundStructView] = BoundStructView
@@ -208,7 +212,19 @@ class StructHandle:
         *fields: ir.Type,
         context: ir.Context = ir.global_context,
         view_type: type[BoundStructView] = BoundStructView,
+        registry_key: Hashable | None = None,
     ) -> "StructHandle":
+        key = registry_key or (
+            context,
+            name,
+            label,
+            view_type.__module__,
+            view_type.__qualname__,
+            fields,
+        )
+        if key in cls._identified_registry:
+            return cls._identified_registry[key]
+
         struct_type = context.get_identified_type(name)
         if not struct_type.is_opaque:
             existing = tuple(struct_type.elements)
@@ -218,7 +234,9 @@ class StructHandle:
                 )
         else:
             struct_type.set_body(*fields)
-        return cls(label=label, ir_type=struct_type, view_type=view_type)
+        handle = cls(label=label, ir_type=struct_type, view_type=view_type)
+        cls._identified_registry[key] = handle
+        return handle
 
     def constant(self, *values: ir.Value) -> ir.Constant:
         return ir.Constant(self.ir_type, list(values))

@@ -51,6 +51,11 @@ class FlagsView(BoundStructView):
     high = BitField(0, 3, 5)
 
 
+class AlternatePairView(BoundStructView):
+    left = StructField(0)
+    right = StructField(1)
+
+
 def test_shared_exit_merges_status_and_value() -> None:
     configure_llvm()
 
@@ -160,6 +165,16 @@ def test_bound_struct_field_can_bind_nested_struct_view() -> None:
     compiled = compile_ir_module(module)
     sum_nested = ctypes.CFUNCTYPE(ctypes.c_longlong)(compiled.function_address("sum_nested"))
     assert sum_nested() == 29
+
+
+def test_identified_struct_handles_are_registry_cached_per_python_projection() -> None:
+    pair_a = StructHandle.identified("pair", "RegistryPair", I32, I32, view_type=PairView)
+    pair_b = StructHandle.identified("pair", "RegistryPair", I32, I32, view_type=PairView)
+    pair_c = StructHandle.identified("pair", "RegistryPair", I32, I32, view_type=AlternatePairView)
+
+    assert pair_a is pair_b
+    assert pair_a is not pair_c
+    assert pair_a.ir_type is pair_c.ir_type
 
 
 def test_bitfield_descriptor_loads_and_stores_logical_fields() -> None:

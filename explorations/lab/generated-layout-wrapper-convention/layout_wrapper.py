@@ -47,16 +47,10 @@ class CodeFieldView(GeneratedCodeFieldView):
         )
 
 
-_CODE_FIELD_HANDLE: StructHandle | None = None
-
-
 def code_field_handle() -> StructHandle:
-    global _CODE_FIELD_HANDLE
-    if _CODE_FIELD_HANDLE is None:
-        _CODE_FIELD_HANDLE = StructHandle.identified(
-            "lab code field",
-            "LabCodeField",
-            I16,
-            view_type=CodeFieldView,
-        )
-    return _CODE_FIELD_HANDLE
+    return StructHandle.identified(
+        "lab code field",
+        "LabCodeField",
+        I16,
+        view_type=CodeFieldView,
+    )

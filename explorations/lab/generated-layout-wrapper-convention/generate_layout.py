@@ -36,19 +36,13 @@ class GeneratedCodeFieldView(BoundStructView):
     unused = BitField(0, 14, 2)
 
 
-_CODE_FIELD_HANDLE: StructHandle | None = None
-
-
 def generated_code_field_handle() -> StructHandle:
-    global _CODE_FIELD_HANDLE
-    if _CODE_FIELD_HANDLE is None:
-        _CODE_FIELD_HANDLE = StructHandle.identified(
-            %r,
-            %r,
-            I16,
-            view_type=GeneratedCodeFieldView,
-        )
-    return _CODE_FIELD_HANDLE
+    return StructHandle.identified(
+        %r,
+        %r,
+        I16,
+        view_type=GeneratedCodeFieldView,
+    )
 """ % (CodeField.__ir_label__, CodeField.__ir_name__)
 
 

@@ -46,10 +46,6 @@ def view_name(struct_cls: type[ctypes.Structure]) -> str:
     return f"{struct_cls.__name__}View"
 
 
-def cache_name(struct_cls: type[ctypes.Structure]) -> str:
-    return f"_{struct_cls.__name__.upper()}_HANDLE"
-
-
 def field_specs(struct_cls: type[ctypes.Structure]) -> list[tuple[str, object]]:
     specs: list[tuple[str, object]] = []
     seen_offsets: set[int] = set()
@@ -130,30 +126,22 @@ def emit_views() -> list[str]:
     return lines
 
 
-def emit_caches() -> list[str]:
-    return [f"{cache_name(struct_cls)}: StructHandle | None = None" for struct_cls in schema.IR_STRUCTS] + ["", ""]
-
-
 def emit_handle_functions() -> list[str]:
     lines: list[str] = []
     for struct_cls in schema.IR_STRUCTS:
         fn_name = HANDLE_FN_NAMES[struct_cls.__name__]
-        cache = cache_name(struct_cls)
         label = getattr(struct_cls, "__ir_label__")
         ir_name = getattr(struct_cls, "__ir_name__")
         field_exprs = [ir_type_expr(field_type) for _name, field_type in field_specs(struct_cls)]
 
         lines.append(f"def {fn_name}() -> StructHandle:")
-        lines.append(f"    global {cache}")
-        lines.append(f"    if {cache} is None:")
-        lines.append(f"        {cache} = StructHandle.identified(")
-        lines.append(f"            {label!r},")
-        lines.append(f"            {ir_name!r},")
+        lines.append("    return StructHandle.identified(")
+        lines.append(f"        {label!r},")
+        lines.append(f"        {ir_name!r},")
         for expr in field_exprs:
-            lines.append(f"            {expr},")
-        lines.append(f"            view_type={view_name(struct_cls)},")
-        lines.append("        )")
-        lines.append(f"    return {cache}")
+            lines.append(f"        {expr},")
+        lines.append(f"        view_type={view_name(struct_cls)},")
+        lines.append("    )")
         lines.append("")
         lines.append("")
     return lines
@@ -181,7 +169,6 @@ def generate() -> str:
         "",
     ]
     lines.extend(emit_views())
-    lines.extend(emit_caches())
     lines.extend(emit_handle_functions())
     lines.append("__all__ = [")
     for struct_cls in schema.IR_STRUCTS:
