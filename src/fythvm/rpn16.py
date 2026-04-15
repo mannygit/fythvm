@@ -23,24 +23,11 @@ from .codegen import (
     emit_tagged_cell_dispatch,
 )
 
+# Public API
+
 STACK_SIZE = 8
 TAG_MASK = 0x8000
 LITERAL_MAX = 0x7FFF
-
-OP_ADD = TAG_MASK | ord("+")
-OP_SUB = TAG_MASK | ord("-")
-OP_MUL = TAG_MASK | ord("*")
-OP_DIV = TAG_MASK | ord("/")
-OP_MOD = TAG_MASK | ord("%")
-OP_EXIT = TAG_MASK | ord("=")
-KNOWN_OPS = {
-    OP_ADD: "+",
-    OP_SUB: "-",
-    OP_MUL: "*",
-    OP_DIV: "/",
-    OP_MOD: "%",
-    OP_EXIT: "=",
-}
 
 
 class Status(IntEnum):
@@ -51,63 +38,6 @@ class Status(IntEnum):
     MISSING_EXIT = 4
     STACK_NOT_SINGLETON = 5
     STACK_OVERFLOW = 6
-
-
-BinaryOperation = Callable[[ir.IRBuilder, ir.Value, ir.Value], ir.Value]
-
-
-def _emit_add(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
-    return builder.add(lhs, rhs, name="sum")
-
-
-def _emit_sub(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
-    return builder.sub(lhs, rhs, name="diff")
-
-
-def _emit_mul(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
-    return builder.mul(lhs, rhs, name="product")
-
-
-def _emit_div(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
-    return builder.sdiv(lhs, rhs, name="quotient")
-
-
-def _emit_mod(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
-    return builder.srem(lhs, rhs, name="remainder")
-
-
-@dataclass(frozen=True)
-class _OpcodeSpec:
-    opcode_value: int
-    name: str
-    kind: Literal["binary", "exit"]
-    operation: BinaryOperation | None = None
-    zero_sensitive: bool = False
-
-
-OPCODE_SPECS = (
-    _OpcodeSpec(OP_ADD, "add", "binary", _emit_add),
-    _OpcodeSpec(OP_SUB, "sub", "binary", _emit_sub),
-    _OpcodeSpec(OP_MUL, "mul", "binary", _emit_mul),
-    _OpcodeSpec(OP_DIV, "div", "binary", _emit_div, zero_sensitive=True),
-    _OpcodeSpec(OP_MOD, "mod", "binary", _emit_mod, zero_sensitive=True),
-    _OpcodeSpec(OP_EXIT, "exit", "exit"),
-)
-
-
-@dataclass(frozen=True)
-class _StatusTarget:
-    kind: "_StatusKind"
-    block: ir.Block
-    status: int
-
-
-class _StatusKind(Enum):
-    UNDERFLOW = "underflow"
-    DIVZERO = "divzero"
-    BAD_EXIT_SHAPE = "bad_exit_shape"
-    OVERFLOW = "overflow"
-    BAD_OPCODE = "bad_opcode"
 
 
 class CalcContext(ctypes.Structure):
@@ -169,6 +99,9 @@ class CompiledCalculator:
         )
 
 
+# Encoding / user-facing helpers
+
+
 def lit(value: int) -> int:
     if not 0 <= value <= LITERAL_MAX:
         raise ValueError(f"literal out of 15-bit range: {value}")
@@ -185,13 +118,13 @@ def render_program(cells: Sequence[int]) -> str:
     rendered: list[str] = []
     for cell in cells:
         if cell & TAG_MASK:
-            rendered.append(KNOWN_OPS.get(cell, f"op(0x{cell:04x})"))
+            rendered.append(_KNOWN_OPS.get(cell, f"op(0x{cell:04x})"))
         else:
             rendered.append(str(cell))
     return ",".join(rendered)
 
 
-def status_name(status: int) -> str:
+def status_name(status: Status) -> str:
     return {
         Status.OK: "ok",
         Status.STACK_UNDERFLOW: "stack_underflow",
@@ -205,6 +138,98 @@ def status_name(status: int) -> str:
 
 def logical_stack(ctx: CalcContext) -> list[int]:
     return [int(value) for value in reversed(ctx.stack[ctx.sp : STACK_SIZE])]
+
+
+def build_module(function_name: str = "eval_cells") -> ir.Module:
+    module = ir.Module(name="fythvm_rpn16")
+    module.triple = binding.get_default_triple()
+    CalculatorEmitter(module, function_name).emit()
+    return module
+
+
+def compile_calculator() -> CompiledCalculator:
+    configure_llvm()
+    module = build_module()
+    compiled = compile_ir_module(module)
+    return CompiledCalculator(
+        llvm_ir=compiled.llvm_ir,
+        _engine=compiled.engine,
+        _eval_addr=compiled.function_address("eval_cells"),
+    )
+
+
+# Private lowering implementation
+
+OP_ADD = TAG_MASK | ord("+")
+OP_SUB = TAG_MASK | ord("-")
+OP_MUL = TAG_MASK | ord("*")
+OP_DIV = TAG_MASK | ord("/")
+OP_MOD = TAG_MASK | ord("%")
+OP_EXIT = TAG_MASK | ord("=")
+_KNOWN_OPS = {
+    OP_ADD: "+",
+    OP_SUB: "-",
+    OP_MUL: "*",
+    OP_DIV: "/",
+    OP_MOD: "%",
+    OP_EXIT: "=",
+}
+
+BinaryOperation = Callable[[ir.IRBuilder, ir.Value, ir.Value], ir.Value]
+
+
+def _emit_add(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.add(lhs, rhs, name="sum")
+
+
+def _emit_sub(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.sub(lhs, rhs, name="diff")
+
+
+def _emit_mul(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.mul(lhs, rhs, name="product")
+
+
+def _emit_div(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.sdiv(lhs, rhs, name="quotient")
+
+
+def _emit_mod(builder: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    return builder.srem(lhs, rhs, name="remainder")
+
+
+@dataclass(frozen=True)
+class _OpcodeSpec:
+    opcode_value: int
+    name: str
+    kind: Literal["binary", "exit"]
+    operation: BinaryOperation | None = None
+    zero_sensitive: bool = False
+
+
+_OPCODE_SPECS = (
+    _OpcodeSpec(OP_ADD, "add", "binary", _emit_add),
+    _OpcodeSpec(OP_SUB, "sub", "binary", _emit_sub),
+    _OpcodeSpec(OP_MUL, "mul", "binary", _emit_mul),
+    _OpcodeSpec(OP_DIV, "div", "binary", _emit_div, zero_sensitive=True),
+    _OpcodeSpec(OP_MOD, "mod", "binary", _emit_mod, zero_sensitive=True),
+    _OpcodeSpec(OP_EXIT, "exit", "exit"),
+)
+
+
+@dataclass(frozen=True)
+class _StatusTarget:
+    kind: "_StatusKind"
+    block: ir.Block
+    status: int
+
+
+class _StatusKind(Enum):
+    UNDERFLOW = "underflow"
+    DIVZERO = "divzero"
+    BAD_EXIT_SHAPE = "bad_exit_shape"
+    OVERFLOW = "overflow"
+    BAD_OPCODE = "bad_opcode"
 
 
 class CalculatorEmitter:
@@ -249,7 +274,6 @@ class CalculatorEmitter:
         self.loop.begin(I32(0))
 
         with self.loop.head() as (ip,):
-            builder = self.builder
             reached_end = builder.icmp_signed(
                 ">=", ip, self.cell_count, name="reached_end"
             )
@@ -258,9 +282,8 @@ class CalculatorEmitter:
 
     def emit_dispatch(self, ip: ir.Value) -> FetchedCell:
         with self.loop.body():
-            builder = self.builder
             return emit_tagged_cell_dispatch(
-                builder,
+                self.builder,
                 self.cells_ptr,
                 ip,
                 literal_target=self.literal_check_block,
@@ -272,8 +295,8 @@ class CalculatorEmitter:
 
     def emit_literal_handler(self, step: FetchedCell) -> None:
         literal_store_block = self.function.append_basic_block("literal.store")
-
         builder = self.builder
+
         with builder.goto_block(self.literal_check_block):
             has_room = self.stack_ops.has_room()
             builder.cbranch(
@@ -344,7 +367,7 @@ class CalculatorEmitter:
             dispatcher = SwitchDispatcher(
                 builder, step.current_cell, bad_opcode_block, name="opcode"
             )
-            for spec in OPCODE_SPECS:
+            for spec in _OPCODE_SPECS:
                 if spec.kind == "binary":
                     dispatcher.add_case(
                         I16(spec.opcode_value),
@@ -379,21 +402,3 @@ class CalculatorEmitter:
         status_phi, result_phi = self.exit.finish()
         self.exit.builder.store(result_phi, self.out_result_ptr)
         self.exit.builder.ret(status_phi)
-
-
-def build_module(function_name: str = "eval_cells") -> ir.Module:
-    module = ir.Module(name="fythvm_rpn16")
-    module.triple = binding.get_default_triple()
-    CalculatorEmitter(module, function_name).emit()
-    return module
-
-
-def compile_calculator() -> CompiledCalculator:
-    configure_llvm()
-    module = build_module()
-    compiled = compile_ir_module(module)
-    return CompiledCalculator(
-        llvm_ir=compiled.llvm_ir,
-        _engine=compiled.engine,
-        _eval_addr=compiled.function_address("eval_cells"),
-    )
