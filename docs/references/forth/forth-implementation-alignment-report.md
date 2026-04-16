@@ -571,6 +571,10 @@ Current status in `fythvm`:
 - but there is not yet a first-class package abstraction for named word families and
   their payload interpretation
 
+Suggested workstream artifact:
+
+- [docs/word-family-contract.md](/Users/manny/fythvm/docs/word-family-contract.md:1)
+
 ### Step 4: Specify execution invariants before choosing execution form
 
 Document what any execution strategy must preserve:
