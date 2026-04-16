@@ -19,11 +19,22 @@ For the neighboring execution-state artifact that this layer will eventually fee
 
 - [docs/execution-invariants.md](/Users/manny/fythvm/docs/execution-invariants.md:1)
 
+For the neighboring declarative helper/lowering layer, see:
+
+- [docs/handler-requirements.md](/Users/manny/fythvm/docs/handler-requirements.md:1)
+
 One important bridge to keep explicit:
 
 - compiler/meta words consume input/parse state
 - runtime inline-operand words consume thread state
 - those are different data sources and should not be conflated
+
+And one more neighboring bridge is now useful:
+
+- compile-time/resource needs for compiler/meta words may still be described
+  declaratively
+- but those needs belong to a `HandlerRequirements`-style helper/lowering layer, not
+  to runtime associated-data-source metadata
 
 ## Why This Doc Exists
 
@@ -174,6 +185,13 @@ So the cleaner model is:
   - execute-now while compiling instead of compiling a normal word reference
 - compile-only / compiler-meta legality
   - a compiler-layer concern, not a dictionary-cell concern
+
+The neighboring requirement layer then becomes:
+
+- parse-time words can declare that they need input source, dictionary access, `HERE`,
+  or error-exit facilities
+- without pretending those needs are runtime family or runtime associated-data-source
+  distinctions
 
 This means the remaining pressure that originally motivated `compiling` is now framed
 as a compiler-layer question:

@@ -39,6 +39,9 @@ So this document treats:
   settles the structure of dictionary entries and the meaning of `xt`, `CFA`, and `DFA`
 - [docs/word-family-contract.md](/Users/manny/fythvm/docs/word-family-contract.md:1)
   settles the runtime-family layer selected by `CodeField.handler_id`
+- [docs/handler-requirements.md](/Users/manny/fythvm/docs/handler-requirements.md:1)
+  records the declarative per-handler requirement layer that sits on top of the
+  uniform handler surface
 - [docs/compiler-mode-contract.md](/Users/manny/fythvm/docs/compiler-mode-contract.md:1)
   settles the neighboring compile-time layer around `STATE`, `immediate`, and
   compiler/meta legality
@@ -117,6 +120,37 @@ Examples:
 
 This is the clearest current replacement for the older vague idea of "payload" as one
 bucket.
+
+## Handler Requirements Layer
+
+The current working direction also needs one explicit layer above machine state and
+runtime families:
+
+- declarative per-handler requirements
+
+This layer is described in:
+
+- [docs/handler-requirements.md](/Users/manny/fythvm/docs/handler-requirements.md:1)
+
+The important boundary is:
+
+- machine state provides the uniform substrate
+- families provide semantic grouping
+- associated-data source explains where runtime-associated data is recovered
+- handler requirements explain what a concrete lowering/helper body needs access to
+
+Examples of that requirement layer include:
+
+- minimum data-stack depth at ingress
+- required data-stack space at egress
+- whether the handler needs `ip`
+- whether it needs `current_xt`
+- whether it needs return-stack access
+- whether it needs an error-exit facility
+- whether it needs dictionary / `HERE` access
+
+This still does **not** change handler ABI. It only makes the resource contract more
+explicit.
 
 ## Parse-Time Input Is Separate
 
@@ -305,6 +339,8 @@ Any future execution strategy should preserve these invariants:
    pretending they are word-local `DFA` payload.
 7. Input/parsing state remains distinct from runtime thread position.
 8. Dispatch strategy may vary without forcing a different handler ABI.
+9. Handler-local lowering contracts may vary by declared requirements without forcing a
+   different handler ABI.
 
 ## What This Document Still Leaves Open
 
@@ -332,5 +368,7 @@ The next useful questions for this workstream are:
    sources?
 5. How much associated-data-source metadata should live in family descriptors versus a
    richer handler registry?
+6. What exact `HandlerRequirements` layer is needed before package/runtime code should
+   try to lower handlers declaratively?
 
 This should be answered before any final execution form is chosen.

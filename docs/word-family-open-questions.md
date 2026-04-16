@@ -47,6 +47,10 @@ One thing is now explicitly *not* open:
 - instruction categories such as stack/arithmetic/memory are not a second family system
 - they are organizational metadata on concrete instructions
 
+The new neighboring helper/lowering artifact is:
+
+- [docs/handler-requirements.md](/Users/manny/fythvm/docs/handler-requirements.md:1)
+
 ## Current Open Questions
 
 ### 1. What Metadata Do We Need Around A Uniform Handler Surface?
@@ -115,20 +119,35 @@ The open question is how much associated-data-source and helper metadata should 
 - directly on families
 - or on a richer per-handler registry layered over families
 
-## 4. What Should Helper APIs Expose?
+Current direction:
+
+- family descriptors should stay fairly small
+- richer per-handler requirements should likely live in a neighboring
+  `HandlerRequirements` layer
+
+## 4. What Should The `HandlerRequirements` Layer Expose?
 
 Only after the first few questions are clarified does the earlier "payload
 interpretation API" question become well-scoped.
 
 At that point the real question becomes:
 
-- how should handler/metadata helpers be exposed in Python and IR?
+- how should handler requirements and helper APIs be exposed in Python and IR?
 
 This likely now means helpers around:
 
 - `current_xt -> DFA`
 - `ip`
 - parse-time input source
+
+And it likely also means declarative requirements for:
+
+- stack ingress
+- stack egress space
+- return-stack ingress/egress where relevant
+- error-exit access
+- dictionary / `HERE` access
+- optional shared kernel lookup
 
 ## 5. How Should Family-Specific Construction Layer On Top Of Shared Dictionary Creation?
 
@@ -187,7 +206,7 @@ The current Step 3 workstream is mainly about:
 - defining the boundary between family metadata and neighboring layers
 - deciding how associated-data source is modeled
 - keeping compile-time behavior out of the runtime family model
-- then attaching handler/metadata helper APIs
+- then attaching a concrete `HandlerRequirements` layer and handler/metadata helper APIs
 - family-aware constructors
 - how explicit the broader family layer should become right now
 - clean handoff to execution invariants
@@ -203,7 +222,7 @@ If reviewing this away from the codebase, the most useful order is:
 1. define the boundary between family semantics, associated-data source, and compile-time behavior
 2. decide how associated-data source is modeled
 3. decide how much of that metadata belongs on families versus a richer handler registry
-4. decide what handler/metadata helper APIs should expose
+4. decide what `HandlerRequirements` and handler/metadata helper APIs should expose
 5. decide how family-aware construction works
 6. decide how much of the broader family layer to model now
 7. then deepen the execution-invariants document

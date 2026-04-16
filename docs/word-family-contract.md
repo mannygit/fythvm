@@ -48,6 +48,11 @@ The compile-time side of that discussion now has its own neighboring artifact:
 
 - [docs/compiler-mode-contract.md](/Users/manny/fythvm/docs/compiler-mode-contract.md:1)
 
+The declarative helper/lowering side of that discussion now also has its own
+neighboring artifact:
+
+- [docs/handler-requirements.md](/Users/manny/fythvm/docs/handler-requirements.md:1)
+
 ## Relationship To The Dictionary Contract
 
 The dictionary contract already settled these points:
@@ -124,6 +129,7 @@ So the family layer is useful for:
 - shared runtime semantics
 - associated-data-source expectations
 - construction and inspection helpers
+- declaring the semantic grouping that richer handler metadata can build on
 - registries, debugging, and documentation
 
 It is **not** the reason to vary:
@@ -588,7 +594,12 @@ What is still open is whether this becomes:
 - a second explicit model axis
 - or something attached to families in a narrower, more constrained way
 
-### D. Where Should Family-Owned Helper APIs Live?
+### D. Where Should Handler Requirements And Helper APIs Live?
+
+This question is now better stated as:
+
+- where should concrete handler requirements and helper APIs live relative to family
+  metadata?
 
 It should not live:
 
@@ -598,12 +609,18 @@ It should not live:
 
 Current recommendation:
 
-- family-specific helpers should own runtime-family interpretation
+- family-specific semantics should remain explicit
 - operand-location rules should be explicit rather than implied
-- it should be valid for a helper to say:
-  - this family has no additional associated data
-  - this family uses word-local `DFA` data
-  - this family consumes inline thread operands
+- concrete handler/lowering requirements should be modeled per handler, not implied
+  only by family labels
+- that neighboring layer should be recorded as:
+  - [docs/handler-requirements.md](/Users/manny/fythvm/docs/handler-requirements.md:1)
+- it should be valid for a requirements entry to say:
+  - this handler needs no associated runtime data beyond machine state
+  - this handler needs `current_xt -> DFA`
+  - this handler needs `ip`
+  - this handler needs parse-time input state
+  - this handler needs error-exit, dictionary, or `HERE` access
 
 ### E. How Should Construction Work?
 
@@ -629,6 +646,8 @@ Current recommendation:
 - each family should have readable runtime/IR helper surfaces
 - operand-location rules should be inspectable in both Python and IR terms
 - family behavior should not become opaque just because execution is deferred
+- richer per-handler observability should flow through a requirements layer rather than
+  through family labels alone
 
 ## What This Document Does Not Decide
 
@@ -660,6 +679,11 @@ The strongest current recommendation is:
   - `NONE`
   - `WORD_LOCAL_DFA`
   - `INLINE_THREAD`
+- make `HandlerRequirements` the clearest next helper/lowering axis:
+  - stack ingress/egress requirements
+  - injected resources like `ip`, `current_xt`, parse-time input, error exit,
+    dictionary, and `HERE`
+  - optional kernel lookup for shared lowering shapes
 - treat the three approved core families as settled:
   - primitive-empty
   - primitive-inline-operand
@@ -690,9 +714,13 @@ This is the order this workstream should walk through.
    - `WORD_LOCAL_DFA`
    - `INLINE_THREAD`
    - and how much of that lives on family descriptors versus richer handler metadata
-5. Only after that, define family-owned helper APIs and family-aware construction
-   helpers.
-6. Only after that, write the execution-invariants document that any future engine
+5. Define the neighboring `HandlerRequirements` layer:
+   - stack ingress/egress requirements
+   - injected machine-state resources
+   - parse-time input requirements
+   - optional kernel identity
+6. Only after that, define family-aware construction helpers.
+7. Only after that, deepen the execution-invariants document that any future engine
    must satisfy.
 
 ## Recommended Next Concrete Work
@@ -703,8 +731,9 @@ If we continue immediately from this document, the next most useful work is:
 2. define the boundary between family semantics, associated-data source, and
    compile-time behavior
 3. decide how associated-data source should be modeled
-4. then add readable runtime/IR helpers for the resulting family/metadata model
-5. then write `docs/execution-invariants.md`
+4. define the neighboring `HandlerRequirements` layer for concrete handlers/lowerings
+5. then add readable runtime/IR helpers for the resulting family/metadata model
+6. then deepen `docs/execution-invariants.md`
 
 The current notes suggest the first concrete descriptor set should probably be:
 
