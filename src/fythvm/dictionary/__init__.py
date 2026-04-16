@@ -1,5 +1,17 @@
 """Dictionary runtime types and helpers for fythvm."""
 
+from .families import (
+    COLON_THREAD_FAMILY,
+    DEFAULT_INSTRUCTION_FAMILIES,
+    DEFINING_WORD_PRODUCED_FAMILY,
+    InstructionFamilyRegistry,
+    PRIMITIVE_EMPTY_FAMILY,
+    PRIMITIVE_PAYLOAD_FAMILY,
+    PayloadKind,
+    SHARED_FIELD_INTERPRETER_FAMILY,
+    WordFamily,
+    family_for_instruction,
+)
 from .schema import (
     CELL_SIZE,
     DEFAULT_MEMORY_CELLS,
@@ -20,12 +32,19 @@ from .ir import DictionaryIR, aligned_name_region_size_ir
 
 __all__ = [
     "CELL_SIZE",
+    "COLON_THREAD_FAMILY",
+    "DEFAULT_INSTRUCTION_FAMILIES",
     "DEFAULT_MEMORY_CELLS",
     "DEFAULT_STACK_CELLS",
+    "DEFINING_WORD_PRODUCED_FAMILY",
     "HIDDEN_MASK",
     "IMMEDIATE_MASK",
+    "InstructionFamilyRegistry",
     "NAME_LENGTH_MASK",
     "NULL_INDEX",
+    "PRIMITIVE_EMPTY_FAMILY",
+    "PRIMITIVE_PAYLOAD_FAMILY",
+    "PayloadKind",
     "CodeField",
     "DictionaryIR",
     "DictionaryMemory",
@@ -33,10 +52,13 @@ __all__ = [
     "InterpreterRuntimeData",
     "LookupTrace",
     "Registers",
+    "SHARED_FIELD_INTERPRETER_FAMILY",
     "StackBounds",
+    "WordFamily",
     "WordPrefix",
     "WordRecord",
     "aligned_name_region_size",
     "aligned_name_region_size_ir",
     "align_up",
+    "family_for_instruction",
 ]

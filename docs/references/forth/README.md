@@ -11,6 +11,8 @@ Reference captures pulled from `Forth_Links.txt`.
   Includes:
   - implementation report with line-referenced explanation of the assembly kernel and
     self-hosted Forth layer
+  - primitive inventory with line-referenced `defcode` word list and `fythvm` family
+    reading
 - [Moving Forth: Part 1](./moving1.md)
   Source: <https://www.bradrodriguez.com/papers/moving1.htm>
 - [Moving Forth: Part 2](./moving2.md)
@@ -31,6 +33,11 @@ Reference captures pulled from `Forth_Links.txt`.
   - shared implementation invariants
   - concrete deviations
   - decision guidance for `fythvm`
+- [Primitive Family Synthesis](./primitive-family-synthesis.md)
+  Includes:
+  - synthesis of JonesForth's concrete primitive inventory with Moving Forth's
+    code-field / parameter-field theory
+  - recommended first family set for `fythvm`
 
 ## Notes
 

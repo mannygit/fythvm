@@ -86,6 +86,39 @@ def test_dictionary_runtime_name_region_has_no_physical_header_byte() -> None:
     assert word.code.name_length == 3
 
 
+def test_instruction_family_registry_defaults_and_overrides() -> None:
+    registry = dictionary.InstructionFamilyRegistry(
+        mapping={
+            7: dictionary.COLON_THREAD_FAMILY,
+            8: dictionary.PRIMITIVE_PAYLOAD_FAMILY,
+        }
+    )
+
+    assert registry.family_for_instruction(1) is dictionary.PRIMITIVE_EMPTY_FAMILY
+    assert registry.family_for_instruction(7) is dictionary.COLON_THREAD_FAMILY
+    assert registry.family_for_instruction(8) is dictionary.PRIMITIVE_PAYLOAD_FAMILY
+    assert dictionary.family_for_instruction(7, registry=registry) is dictionary.COLON_THREAD_FAMILY
+
+
+def test_word_record_family_uses_registry_mapping() -> None:
+    runtime = dictionary.DictionaryRuntime()
+    thread_word = runtime.create_word("threaded", instruction=7, data=(11, 22))
+    literal_word = runtime.create_word("literal", instruction=8, data=(33,))
+    plain_word = runtime.create_word("dup", instruction=1)
+    registry = dictionary.InstructionFamilyRegistry(
+        mapping={
+            7: dictionary.COLON_THREAD_FAMILY,
+            8: dictionary.PRIMITIVE_PAYLOAD_FAMILY,
+        }
+    )
+
+    assert plain_word.family() is dictionary.PRIMITIVE_EMPTY_FAMILY
+    assert thread_word.family(registry) is dictionary.COLON_THREAD_FAMILY
+    assert literal_word.family(registry) is dictionary.PRIMITIVE_PAYLOAD_FAMILY
+    assert thread_word.family(registry).has_payload is True
+    assert plain_word.family(registry).has_payload is False
+
+
 def test_dictionary_runtime_raises_when_memory_is_exhausted() -> None:
     memory = dictionary.DictionaryMemory()
     runtime = dictionary.DictionaryRuntime(memory)

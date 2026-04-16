@@ -19,6 +19,12 @@ an implementation report describing how this particular Forth works.
 - [implementation-report.md](./implementation-report.md)
   - A structured explanation of how JonesForth is implemented and what is likely most
     relevant to `fythvm`.
+- [primitive-inventory.md](./primitive-inventory.md)
+  - Inventory of the assembly-defined `defcode` primitive words.
+  - Includes:
+    - full word list with source line numbers
+    - a reduced `fythvm`-relevant slice
+    - a family-oriented reading of what the primitive set suggests
 
 ## Why It Matters Here
 

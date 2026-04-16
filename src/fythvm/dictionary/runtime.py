@@ -6,6 +6,7 @@ import ctypes
 from dataclasses import dataclass
 from typing import Iterator, Sequence
 
+from .families import InstructionFamilyRegistry, WordFamily, family_for_instruction
 from .schema import (
     CELL_SIZE,
     DEFAULT_MEMORY_CELLS,
@@ -136,6 +137,9 @@ class WordRecord:
     @property
     def instruction(self) -> int:
         return int(self.code.instruction)
+
+    def family(self, registry: InstructionFamilyRegistry | None = None) -> WordFamily:
+        return family_for_instruction(self.instruction, registry=registry)
 
     @property
     def cfa_index(self) -> int:

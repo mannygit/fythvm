@@ -18,39 +18,26 @@ These points are no longer the real questions:
 - some primitive families can still be payload-bearing
   - `LIT`-style behavior
   - a primitive that invokes some non-primitive target
+- the approved initial family set is:
+  - payload-empty primitive
+  - payload-bearing primitive
+  - colon-thread
 
 So the current workstream is no longer trying to answer whether word families exist.
-It is trying to make them explicit and usable in package code.
+It is trying to make them more useful and actionable in package code.
 
 ## Current Open Questions
 
-### 1. What Are The First Named Family Descriptors?
+### 1. How Should Payload Interpretation Be Attached?
 
-The current leading candidate set is:
+The package now has:
 
-- payload-empty primitive
-- payload-bearing primitive
-- `DOCOL` / colon-thread
-- defining-word-produced
+- named family descriptors
+- a registry mapping instruction ids to those descriptors
+- raw `instruction` ids still stored in `CodeField`
 
-This direction is strong, but it is not yet locked into package code.
-
-## 2. How Should Family Identity Live In Package Code?
-
-Options still include:
-
-- raw `instruction` ids only
-- named descriptors plus raw ids
-- a registry mapping instruction ids to descriptors
-
-Current direction:
-
-- keep the raw integer id as the stored representation
-- move toward named package-level family descriptors
-
-What is still open is the exact package shape.
-
-## 3. How Should Payload Interpretation Be Attached?
+So the remaining question is no longer the base package shape. It is what richer
+meaning should hang off that shape.
 
 The important question is where the logic lives that says:
 
@@ -65,7 +52,7 @@ Current direction:
 
 What is still open is the exact API boundary.
 
-## 4. How Should Family-Specific Construction Layer On Top Of Shared Dictionary Creation?
+## 2. How Should Family-Specific Construction Layer On Top Of Shared Dictionary Creation?
 
 We already have:
 
@@ -80,19 +67,22 @@ What is still open is how family-aware constructors should sit on top of that:
 - one registry-driven builder?
 - some smaller set of shared helper patterns?
 
-## 5. Which Primitive Families Are Actually Payload-Bearing?
+## 3. How Far Should The Broader Family Layer Be Made Explicit Now?
 
-The direction is now much narrower than before:
+The approved core set is settled, but the broader conceptual layer is still a timing
+question.
 
-- most primitives are probably payload-empty
-- the first payload-bearing cases likely include:
-  - `DOCOL`
-  - `LIT`-style behavior
-  - a primitive that invokes some non-primitive target
+The important follow-on families are:
 
-What is still open is whether those should become the canonical initial list in code.
+- shared field-interpreter families
+- defining-word-produced families
 
-## 6. What Exact Handoff Should This Workstream Make To Execution Invariants?
+What is still open is:
+
+- whether to represent those explicitly in package code now
+- or first land the approved three-family core and return to the broader layer after that
+
+## 4. What Exact Handoff Should This Workstream Make To Execution Invariants?
 
 This workstream should not choose execution form.
 
@@ -113,19 +103,16 @@ So one open question is really about sequencing:
 
 The current Step 3 workstream is mainly about:
 
-- first family descriptor set
-- package representation / registry shape
 - family-owned payload interpretation
 - family-aware constructors
-- exact list of payload-bearing primitive families
+- how explicit the broader family layer should become right now
 - clean handoff to execution invariants
 
 ## Suggested Review Order
 
 If reviewing this away from the codebase, the most useful order is:
 
-1. decide the first family descriptor set
-2. decide how family descriptors should exist in package code
-3. decide how payload interpretation is attached
-4. decide how family-aware construction works
-5. then write the execution-invariants document
+1. decide how payload interpretation is attached
+2. decide how family-aware construction works
+3. decide how much of the broader family layer to model now
+4. then write the execution-invariants document

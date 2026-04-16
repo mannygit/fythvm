@@ -24,11 +24,12 @@ We already have:
 - generated layout
 - runtime dictionary behavior
 - IR-side dictionary helpers
+- package-level family descriptors and an instruction-to-family registry
 
 What is still underspecified is the next layer up:
 
-- how `instruction` should be interpreted as shared behavior
-- how payload interpretation attaches to that behavior
+- how far the package should go beyond the initial family descriptors
+- how payload interpretation attaches to those descriptors
 - how native/builtin words, colon-defined words, and later defining-word-like words
   should be modeled without becoming ad hoc special cases
 
@@ -113,8 +114,8 @@ So the system already has one important semantic decision:
 
 - `instruction` is a **shared behavior selector**
 
-What is still missing is making that explicit in package design instead of leaving it
-as an implicit reading of one field.
+That is now explicit in package design at the descriptor/registry level. What remains is
+to decide how much more family-specific behavior should be attached there.
 
 ## Concrete `~/fyth` Direction
 
@@ -202,11 +203,19 @@ These two directions differ in execution form, but they agree on the family cont
 That is exactly why this workstream should stop at the family boundary and not choose
 the execution mechanism yet.
 
-## Initial Family Candidates
+## Approved Core Family Breakdown
 
-These are the first meaningful families the repo should reason about.
+The current core family breakdown is now considered approved.
 
-### 1. Primitive / Native Family
+The approved initial family set is:
+
+1. **payload-empty primitive**
+2. **payload-bearing primitive**
+3. **colon-thread**
+
+These are the first families the package should reason about explicitly.
+
+### 1. Payload-Empty Primitive
 
 Meaning:
 
@@ -215,8 +224,7 @@ Meaning:
 
 Payload:
 
-- usually empty
-- sometimes small family-specific metadata when needed
+- empty in the normal case
 
 Examples:
 
@@ -224,10 +232,33 @@ Examples:
 - stack operators
 - memory primitives
 - host/runtime bridge primitives
+- dictionary/compiler-control primitives like `IMMEDIATE`, `HIDDEN`, `[`, `]`, `'`
 
-This is now the clearest default family in the model.
+This is the default family in the model.
 
-### 2. Colon-Defined Family
+### 2. Payload-Bearing Primitive
+
+Meaning:
+
+- `instruction` still selects a primitive/shared behavior
+- but that behavior interprets data after `DFA`
+
+Examples:
+
+- `LIT`-style behavior
+- branch-style behavior
+- a primitive that invokes some non-primitive target
+- later special control/data-bearing primitives
+
+This matters because it prevents the model from collapsing into a false dichotomy of:
+
+- primitives have no payload
+- non-primitives have payload
+
+The older `~/fyth` direction and the JonesForth/Moving references all support this
+family as real and important.
+
+### 3. Colon-Thread
 
 Meaning:
 
@@ -240,30 +271,28 @@ Payload:
 This is the first family that turns the dictionary from a symbol table into a proper
 threaded language substrate.
 
-This is also the clearest example of a payload-bearing family.
+### 4. Generalized Families To Keep In View
 
-### 3. Payload-Bearing Primitive Families
+The following are still important, but they are the next layer rather than the approved
+minimal core.
+
+#### Shared Field-Interpreter Families
 
 Meaning:
 
-- `instruction` still selects a primitive/shared behavior
-- but that behavior interprets data after `DFA`
+- a shared behavior routine interprets per-word payload after `DFA`
 
-Examples:
+Moving Forth examples:
 
-- `LIT`-style behavior
-- a primitive that invokes some non-primitive target
-- later special control/data-bearing primitives
+- `DOCON`
+- `DOVAR`
+- `ENTER`
+- `LIT`
 
-This matters because it prevents the model from collapsing into a false dichotomy of:
+These are better thought of as a broader conceptual family layer that may emerge once
+the first three core families are explicit in package code.
 
-- primitives have no payload
-- non-primitives have payload
-
-The old `~/fyth` direction suggests that some primitives do have meaningful payload,
-just not most of them.
-
-### 4. Defining-Word-Produced Families
+#### Defining-Word-Produced Families
 
 Meaning:
 
@@ -280,7 +309,8 @@ Examples in classic Forth terms:
 - values
 - `DOES>`-like products
 
-This is the family layer JonesForth and Moving Forth both argue is fundamental.
+This is the family layer JonesForth and Moving Forth both argue is fundamental, but it
+does not need to be the first package-level implementation step.
 
 ## Immediate Design Questions
 
@@ -294,16 +324,14 @@ Options include:
 - define named package-level family descriptors
 - define a registry mapping `instruction` ids to family descriptors
 
-Current recommendation:
+Current status:
 
-- move toward named package-level family descriptors
-- keep the raw integer id as the stored `CodeField` representation
-- avoid leaving family meaning as comments and gut feel only
-- the first useful named grouping probably looks like:
-  - payload-empty primitive
-  - payload-bearing primitive
-  - colon/thread
-  - defining-word-produced
+- named package-level family descriptors now exist
+- the raw integer id remains the stored `CodeField` representation
+- an instruction-to-family registry exists at the package level
+
+What remains open is how much richer that representation should become before the
+instruction set is nailed down.
 
 ### B. Where Should Payload Interpretation Live?
 
@@ -366,7 +394,11 @@ The strongest current recommendation is:
 - keep construction and payload interpretation attached to families, not scattered
 - do not force execution-form decisions into this workstream
 - let the default case be a payload-empty primitive family
-- treat `DOCOL` and `LIT`-style behaviors as the first clear payload-bearing cases
+- treat payload-bearing primitives and `DOCOL` as the first concrete special cases
+- treat the three approved core families as settled:
+  - payload-empty primitive
+  - payload-bearing primitive
+  - colon-thread
 
 That gives us a cleaner bridge from:
 
@@ -383,12 +415,11 @@ without conflating the two.
 This is the order this workstream should walk through.
 
 1. Confirm that `instruction` is the stored family selector.
-2. Decide the first named family set the package should recognize.
-3. Decide how family descriptors are represented in package code.
-4. Decide how family-specific payload interpretation is attached.
-5. Decide how family-specific construction helpers should layer on top of the shared
+2. Record the approved first family set in the package/docs.
+3. Decide how family-specific payload interpretation is attached.
+4. Decide how family-specific construction helpers should layer on top of the shared
    dictionary machinery.
-6. Only after that, write the execution-invariants document that any future engine
+5. Only after that, write the execution-invariants document that any future engine
    must satisfy.
 
 ## Recommended Next Concrete Work
@@ -405,7 +436,8 @@ The current notes suggest the first concrete descriptor set should probably be:
 1. payload-empty primitive family
 2. payload-bearing primitive family
 3. `DOCOL` / colon-thread family
-4. defining-word-produced family
+
+That initial set is now approved at the document level.
 
 That should give `fythvm` a clean bridge from:
 
