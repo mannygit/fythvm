@@ -566,14 +566,18 @@ Why:
 Current status in `fythvm`:
 
 - partially complete
-- `instruction` already has a clear meaning as primitive dispatch selector
+- `handler_id` already has a clear runtime meaning as shared behavior selection metadata
 - native and later-defined words already share one dictionary contract
-- but there is not yet a first-class package abstraction for named word families and
-  their payload interpretation
+- named package-level family descriptors and a handler-id-to-family registry now exist
+- the main remaining work is to tighten the family boundary against:
+  - operand-location semantics
+  - compile-time behavior
+  rather than to invent the family abstraction from scratch
 
 Suggested workstream artifact:
 
 - [docs/word-family-contract.md](/Users/manny/fythvm/docs/word-family-contract.md:1)
+- [docs/compiler-mode-contract.md](/Users/manny/fythvm/docs/compiler-mode-contract.md:1)
 
 ### Step 4: Specify execution invariants before choosing execution form
 
@@ -595,6 +599,10 @@ Current status in `fythvm`:
 - still needed
 - pieces of the answer exist across the dictionary contract and the reference reports
 - but there is not yet one focused execution-invariants document
+
+Neighboring workstream artifact:
+
+- [docs/compiler-mode-contract.md](/Users/manny/fythvm/docs/compiler-mode-contract.md:1)
 
 ### Step 5: Only then choose the first real execution shape
 
