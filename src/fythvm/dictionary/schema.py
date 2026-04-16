@@ -52,8 +52,7 @@ class CodeField(ctypes.Structure):
         ("hidden", ctypes.c_uint32, 1),
         ("name_length", ctypes.c_uint32, 5),
         ("immediate", ctypes.c_uint32, 1),
-        ("compiling", ctypes.c_uint32, 1),
-        ("unused", ctypes.c_uint32, 17),
+        ("unused", ctypes.c_uint32, 18),
     ]
 
 

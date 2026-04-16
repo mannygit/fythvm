@@ -224,7 +224,6 @@ class DictionaryIR:
         handler_id: int | ir.Value = 0,
         hidden: bool | ir.Value = False,
         immediate: bool | ir.Value = False,
-        compiling: bool | ir.Value = False,
         data_values: Sequence[int | ir.Value] = (),
     ) -> ir.Value:
         here = self.here_index()
@@ -255,8 +254,7 @@ class DictionaryIR:
             name_length_i5 = self.builder.zext(name_length_i5, ir.IntType(5), name="name_length_i5")
         code_field.name_length.store(name_length_i5)
         code_field.immediate.store(_i1_flag(immediate))
-        code_field.compiling.store(_i1_flag(compiling))
-        code_field.unused.store(ir.IntType(17)(0))
+        code_field.unused.store(ir.IntType(18)(0))
 
         for offset, value in enumerate(data_values):
             cell_value = _i32_value(value)

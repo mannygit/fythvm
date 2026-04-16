@@ -26,7 +26,6 @@ def main() -> None:
         handler_id=42,
         hidden=True,
         immediate=True,
-        compiling=True,
         data=[0x11111111, 0x22222222],
     )
 
@@ -67,11 +66,11 @@ def main() -> None:
         "decoded: "
         f"handler_id={word.code_field.handler_id} hidden={bool(word.code_field.hidden)} "
         f"name_length={word.code_field.name_length} immediate={bool(word.code_field.immediate)} "
-        f"compiling={bool(word.code_field.compiling)} unused={word.code_field.unused}"
+        f"unused={word.code_field.unused}"
     )
     print(
         "bit layout: "
-        "[handler_id:7][hidden:1][name_length:5][immediate:1][compiling:1][unused:17]"
+        "[handler_id:7][hidden:1][name_length:5][immediate:1][unused:18]"
     )
     print()
 

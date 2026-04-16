@@ -62,21 +62,20 @@ def test_dictionary_lookup_skips_hidden_words_and_traces_visited_names() -> None
 
 def test_dictionary_runtime_uses_fixed_ctypes_prefix_layout() -> None:
     runtime = dictionary.DictionaryRuntime()
-    word = runtime.create_word("emit", handler_id=9, compiling=True, data=(55,))
+    word = runtime.create_word("emit", handler_id=9, data=(55,))
     prefix = word.prefix
 
     assert ctypes.sizeof(dictionary.CodeField) == dictionary.CELL_SIZE
     assert ctypes.sizeof(dictionary.WordPrefix) == dictionary.CELL_SIZE * 2
     assert prefix.link == dictionary.NULL_INDEX
     assert prefix.code_field.name_length == 4
-    assert prefix.code_field.compiling == 1
     assert word.name_start_byte_offset == 0
     assert runtime.memory.read_bytes(0, 4) == b"emit"
 
 
 def test_dictionary_runtime_name_region_has_no_physical_header_byte() -> None:
     runtime = dictionary.DictionaryRuntime()
-    word = runtime.create_word("dup", handler_id=42, hidden=True, immediate=True, compiling=True)
+    word = runtime.create_word("dup", handler_id=42, hidden=True, immediate=True)
 
     assert word.name_bytes == b"dup"
     assert word.aligned_name_bytes == 4

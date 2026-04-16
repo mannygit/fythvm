@@ -249,7 +249,6 @@ with `CodeField` as the canonical storage for:
 - execution handler selector (`handler_id`)
 - hidden
 - immediate
-- compiling
 - name length
 - reserved flags
 
@@ -495,13 +494,12 @@ Current `CodeField` contains:
 - `hidden`
 - `name_length`
 - `immediate`
-- `compiling`
 - `unused`
 
 This is now mostly settled:
 
 - `CodeField` is the single canonical metadata cell
-- `handler_id`, `hidden`, `name_length`, `immediate`, and `compiling` belong there
+- `handler_id`, `hidden`, `name_length`, and `immediate` belong there
 - `handler_id` is:
   - a primitive Forth-system handler id in the current model
   - used to index a jump table / dispatch table

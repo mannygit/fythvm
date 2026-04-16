@@ -136,10 +136,6 @@ class WordRecord:
         return bool(self.code_field.immediate)
 
     @property
-    def compiling(self) -> bool:
-        return bool(self.code_field.compiling)
-
-    @property
     def handler_id(self) -> int:
         return int(self.code_field.handler_id)
 
@@ -175,7 +171,6 @@ class DictionaryRuntime:
         handler_id: int = 0,
         hidden: bool = False,
         immediate: bool = False,
-        compiling: bool = False,
         data: Sequence[int] = (),
     ) -> WordRecord:
         name_bytes = name.encode("ascii") if isinstance(name, str) else name
@@ -194,7 +189,6 @@ class DictionaryRuntime:
         prefix.code_field.hidden = int(hidden)
         prefix.code_field.name_length = len(name_bytes)
         prefix.code_field.immediate = int(immediate)
-        prefix.code_field.compiling = int(compiling)
         prefix.code_field.unused = 0
 
         for offset, cell in enumerate(data):
@@ -237,7 +231,7 @@ class DictionaryRuntime:
         return (
             f"{word.name_bytes.decode('ascii')!r} @ cell {word.index} "
             f"link={word.link} cfa={word.cfa_index} dfa={word.dfa_index} "
-            f"hidden={word.hidden} immediate={word.immediate} compiling={word.compiling} "
+            f"hidden={word.hidden} immediate={word.immediate} "
             f"handler_id={word.handler_id}"
         )
 

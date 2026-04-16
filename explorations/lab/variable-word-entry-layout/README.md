@@ -73,7 +73,7 @@ byte-sized protocol. The transitions between those units are where the bugs live
 
 - What is the cleanest way to combine this variable-layout word protocol with the
   fixed runtime records in one integrated runtime?
-- Should immediate and compiling remain metadata-only in the package prototype, or
-  should one of them drive behavior next?
+- Should `immediate` remain metadata-only in the package prototype until a compiler
+  layer exists, or is there a smaller behavior worth attaching sooner?
 - When does this layout stop being a good debug-visible representation and want a more
   indexed lookup structure on top?

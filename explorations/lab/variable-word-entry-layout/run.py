@@ -18,7 +18,6 @@ class RawWordShape:
     handler_id: int
     hidden: bool
     immediate: bool
-    compiling: bool
     name_bytes: bytes
 
 
@@ -37,7 +36,6 @@ def raw_describe_word(word: WordRecord) -> RawWordShape:
         handler_id=word.handler_id,
         hidden=word.hidden,
         immediate=word.immediate,
-        compiling=word.compiling,
         name_bytes=name_bytes,
     )
 
@@ -47,7 +45,7 @@ def render_raw(shape: RawWordShape) -> str:
         f"{shape.name_bytes.decode('ascii')!r}: word={shape.index} "
         f"name_start_byte={shape.name_start_byte_offset} aligned_name_bytes={shape.aligned_name_bytes} "
         f"link={shape.link} cfa={shape.cfa_index} dfa={shape.dfa_index} "
-        f"hidden={shape.hidden} immediate={shape.immediate} compiling={shape.compiling} "
+        f"hidden={shape.hidden} immediate={shape.immediate} "
         f"handler_id={shape.handler_id}"
     )
 
@@ -63,7 +61,7 @@ def main() -> None:
     runtime = DictionaryRuntime()
     runtime.create_word("dup", handler_id=10, data=(111,))
     runtime.create_word("swap", handler_id=20, hidden=True, data=(222,))
-    runtime.create_word("emit", handler_id=30, immediate=True, compiling=True, data=(333, 444))
+    runtime.create_word("emit", handler_id=30, immediate=True, data=(333, 444))
 
     words = list(runtime.iter_words())
     raw_shapes = [raw_describe_word(word) for word in words]

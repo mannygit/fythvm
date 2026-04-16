@@ -22,8 +22,7 @@ class CodeFieldView(BoundStructView):
     hidden = BitField(0, 7, 1)
     name_length = BitField(0, 8, 5)
     immediate = BitField(0, 13, 1)
-    compiling = BitField(0, 14, 1)
-    unused = BitField(0, 15, 17)
+    unused = BitField(0, 14, 18)
 
 
 class WordPrefixView(BoundStructView):

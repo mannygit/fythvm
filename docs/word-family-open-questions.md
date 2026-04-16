@@ -15,13 +15,21 @@ These points are no longer the real questions:
 - native and later-defined words share one dictionary contract
 - many primitive words likely have no additional associated data
 - `DOCOL` is the clearest word-local `DFA` case
-- some primitive families can still be payload-bearing
-  - `LIT`-style behavior
-  - a primitive that invokes some non-primitive target
+- some primitive families consume inline execution-stream operands
+  - `LIT`
+  - `BRANCH`
+  - `0BRANCH`
+  - `LITSTRING`
 - the approved initial family set is:
   - payload-empty primitive
-  - payload-bearing primitive
+  - primitive-inline-operand
   - colon-thread
+
+JonesForth's minimum self-hosting substrate also gives us a stronger negative result:
+
+- `STATE` plus `IMMEDIATE` plus explicit compiler/meta words are enough to bootstrap the
+  self-hosted layer
+- so a separate `compiling` bit is not justified just by the existence of compilation
 
 So the current workstream is no longer trying to answer whether word families exist.
 It is trying to make them more useful and actionable in package code without blurring
@@ -59,6 +67,15 @@ So the first open question is:
 
 - what belongs to the family layer versus adjacent layers?
 
+The compile-time side of that adjacent-layer question now has its own focused artifact:
+
+- [docs/compiler-mode-contract.md](/Users/manny/fythvm/docs/compiler-mode-contract.md:1)
+
+Current stronger constraint:
+
+- runtime family should stay narrow and explain runtime handler behavior only
+- compile-time behavior should stay on the `STATE` / `IMMEDIATE` / compiler-meta side
+
 ## 2. How Should Operand Location Be Modeled?
 
 Once the family boundary is cleaner, the next question is whether operand location
@@ -73,6 +90,11 @@ The important distinctions are:
 - word-local data after the word's own `DFA`
 - inline operands in the active execution stream
 
+The current leading candidate is:
+
+- treat inline-operand behavior as its own explicit runtime family concern, rather than
+  bundling it into a vague "payload-bearing primitive" bucket
+
 ## 3. Where Should Family-Owned Helper APIs Live?
 
 Only after the first two questions are clarified does the earlier "payload
@@ -81,6 +103,12 @@ interpretation API" question become well-scoped.
 At that point the real question becomes:
 
 - how should family/operand helpers be exposed in Python and IR?
+
+This likely now means:
+
+- helpers for `primitive-empty`
+- helpers for `primitive-inline-operand`
+- helpers for `colon-thread`
 
 ## 4. How Should Family-Specific Construction Layer On Top Of Shared Dictionary Creation?
 
@@ -137,6 +165,7 @@ The current Step 3 workstream is mainly about:
 
 - defining the family boundary cleanly
 - deciding how operand location is modeled
+- keeping compile-time behavior out of the runtime family model
 - then attaching family/operand helper APIs
 - family-aware constructors
 - how explicit the broader family layer should become right now

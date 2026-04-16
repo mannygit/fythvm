@@ -23,7 +23,7 @@ def main() -> None:
     runtime.create_word("dup", handler_id=1, data=(10,))
     runtime.create_word("swap", handler_id=2, immediate=True, data=(20, 21))
     runtime.create_word("secret", handler_id=3, hidden=True, data=(30,))
-    runtime.create_word("emit", handler_id=4, compiling=True, data=(40, 41, 42))
+    runtime.create_word("emit", handler_id=4, data=(40, 41, 42))
 
     print("== Question ==")
     print("What does a pure Python + ctypes dictionary runtime look like once the fixed records and variable word-entry protocol are combined?")

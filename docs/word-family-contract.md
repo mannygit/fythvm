@@ -36,6 +36,10 @@ What is still underspecified is the next layer up:
 This is exactly where JonesForth's concrete codeword behavior and Moving Forth's
 code-field / parameter-field theory meet most productively.
 
+The compile-time side of that discussion now has its own neighboring artifact:
+
+- [docs/compiler-mode-contract.md](/Users/manny/fythvm/docs/compiler-mode-contract.md:1)
+
 ## Relationship To The Dictionary Contract
 
 The dictionary contract already settled these points:
@@ -79,6 +83,25 @@ It does **not** automatically answer:
 - whether relevant data lives after the word's own `DFA`
 - whether relevant data is an inline operand in the active execution stream
 - whether the word has immediate or compile-affecting behavior
+
+JonesForth's minimum self-hosting substrate makes this boundary clearer. The words that
+must already exist in order for the self-hosted layer to grow include:
+
+- `NEXT`, `DOCOL`, `EXIT`, `EXECUTE`
+- `WORD`, `FIND`, `INTERPRET`
+- `STATE`, `IMMEDIATE`
+- `CREATE`, `,`, `:`, `;`
+- `LIT`, `BRANCH`, `0BRANCH`, `LITSTRING`
+
+That minimum set is useful because it shows which distinctions are already required just
+to bootstrap:
+
+- runtime handlers like `DOCOL`, `LIT`, `BRANCH`, `0BRANCH`, and `LITSTRING`
+- compile-mode dispatch via `STATE` and `IMMEDIATE`
+- compiler/meta words that build definitions
+
+This strongly suggests that runtime family should stay narrow and should not try to
+absorb compile-time behavior.
 
 ## What Is Common Across Families
 
@@ -127,8 +150,22 @@ This is the family layer proper:
 - what shared runtime behavior does `handler_id` select?
 - examples:
   - payload-empty primitive behavior
-  - payload-bearing primitive behavior
+  - primitive behavior that consumes inline execution-stream operands
   - `DOCOL` / colon-thread behavior
+
+Given the JonesForth substrate above, the strongest current runtime split is:
+
+- `primitive-empty`
+- `primitive-inline-operand`
+- `colon-thread`
+
+`primitive-payload` was a useful transitional name, but the more precise pressure from
+JonesForth is specifically around inline execution-stream operands:
+
+- `LIT`
+- `BRANCH`
+- `0BRANCH`
+- `LITSTRING`
 
 ### 2. Data Location And Interpretation
 
@@ -174,6 +211,10 @@ JonesForth strongly supports keeping this separate:
   they affect compilation
 
 This is the actual family boundary.
+
+For the compile-time side of the boundary, see:
+
+- [docs/compiler-mode-contract.md](/Users/manny/fythvm/docs/compiler-mode-contract.md:1)
 
 ## Instruction Categories Are Separate
 
@@ -221,6 +262,14 @@ So the system already has one important semantic decision:
 That is now explicit in package design at the descriptor/registry level. What remains is
 to decide how much more meaning should be attached there versus modeled on neighboring
 axes.
+
+The minimum JonesForth substrate makes one additional constraint especially clear:
+
+- `STATE` and `IMMEDIATE` are already enough to explain a large part of compile-time
+  behavior
+
+So runtime families should not grow a compile-time taxonomy just because compile-
+sensitive words exist.
 
 ## Concrete `~/fyth` Direction
 

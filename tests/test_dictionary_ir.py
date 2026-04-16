@@ -46,7 +46,6 @@ def test_dictionary_ir_create_word_matches_runtime_layout() -> None:
         I32(4),
         handler_id=I32(20),
         immediate=True,
-        compiling=True,
         data_values=(I32(222), I32(333)),
     )
     builder.ret(last_index)
@@ -63,7 +62,6 @@ def test_dictionary_ir_create_word_matches_runtime_layout() -> None:
     assert [word.name_bytes for word in words] == [b"emit", b"dup"]
     assert words[0].handler_id == 20
     assert words[0].immediate is True
-    assert words[0].compiling is True
     assert words[0].read_data_cells(2) == [222, 333]
     assert words[1].handler_id == 10
     assert words[1].hidden is False

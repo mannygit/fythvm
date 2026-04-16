@@ -58,9 +58,9 @@ freely diverge from the real planned layout. That removes most of the value. The
 useful version is the one that preserves the actual fixed-record and variable-entry
 protocol.
 
-Another easy mistake is treating `immediate`, `compiling`, and `hidden` as having the
-same role. In this prototype, `hidden` affects lookup; the others are preserved as
-metadata only.
+Another easy mistake is treating `immediate` and `hidden` as having the same role. In
+this prototype, `hidden` affects lookup while `immediate` is preserved as metadata only;
+compile-only legality belongs at the compiler layer, not in the dictionary cell.
 
 ## Apply When
 

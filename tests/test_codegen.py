@@ -228,7 +228,6 @@ def test_generated_dictionary_code_field_view_exposes_logical_bitfields() -> Non
     view.hidden.store(ir.IntType(1)(1))
     view.name_length.store(ir.IntType(5)(7))
     view.immediate.store(ir.IntType(1)(1))
-    view.compiling.store(ir.IntType(1)(0))
     builder.ret(view.cell.load())
 
     read_fields = ir.Function(module, ir.FunctionType(I32, []), name="read_code_fields")
@@ -238,14 +237,13 @@ def test_generated_dictionary_code_field_view_exposes_logical_bitfields() -> Non
     total = builder.add(total, builder.zext(view.hidden.load(), I32))
     total = builder.add(total, builder.zext(view.name_length.load(), I32))
     total = builder.add(total, builder.zext(view.immediate.load(), I32))
-    total = builder.add(total, builder.zext(view.compiling.load(), I32))
     builder.ret(total)
 
     compiled = compile_ir_module(module)
     set_fields_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("set_code_fields"))
     read_fields_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("read_code_fields"))
     assert set_fields_fn() == (42 | (1 << 7) | (7 << 8) | (1 << 13))
-    assert read_fields_fn() == 42 + 1 + 7 + 1 + 0
+    assert read_fields_fn() == 42 + 1 + 7 + 1
 
 
 def test_compare_aligned_i32_regions_compares_padded_name_bytes_word_at_a_time() -> None:
