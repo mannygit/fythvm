@@ -126,6 +126,37 @@ def test_instruction_registry_returns_category_for_primitive_empty_instruction()
     assert descriptor.key == "DUP"
     assert descriptor.family is dictionary.PRIMITIVE_EMPTY_FAMILY
     assert descriptor.category is dictionary.InstructionCategory.STACK
+    assert descriptor.associated_data_source is dictionary.AssociatedDataSource.NONE
+    assert descriptor.requirements.min_data_stack_in == 1
+    assert descriptor.requirements.min_data_stack_out_space == 2
+    assert descriptor.requirements.needs_error_exit is True
+    assert descriptor.requirements.kernel == "dup"
+
+
+def test_instruction_registry_exposes_return_stack_requirements() -> None:
+    descriptor = dictionary.instruction_descriptor_for_handler_id(dictionary.PrimitiveInstruction.EXIT)
+
+    assert descriptor is not None
+    assert descriptor.requirements.needs_return_stack is True
+    assert descriptor.requirements.min_return_stack_in == 1
+    assert descriptor.requirements.kernel == "exit"
+
+
+def test_instruction_registry_exposes_compiler_and_input_requirements() -> None:
+    create_descriptor = dictionary.instruction_descriptor_for_handler_id(dictionary.PrimitiveInstruction.CREATE)
+    tick_descriptor = dictionary.instruction_descriptor_for_handler_id(dictionary.PrimitiveInstruction.TICK)
+
+    assert create_descriptor is not None
+    assert create_descriptor.requirements.needs_input_source is True
+    assert create_descriptor.requirements.needs_dictionary is True
+    assert create_descriptor.requirements.needs_here is True
+    assert create_descriptor.requirements.kernel == "create_word"
+
+    assert tick_descriptor is not None
+    assert tick_descriptor.requirements.needs_input_source is True
+    assert tick_descriptor.requirements.needs_dictionary is True
+    assert tick_descriptor.requirements.min_data_stack_out_space == 1
+    assert tick_descriptor.requirements.kernel == "tick"
 
 
 def test_instruction_registry_leaves_unregistered_instruction_without_descriptor() -> None:
