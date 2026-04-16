@@ -5,14 +5,6 @@ close out. Keep the backlog small and explicit.
 
 ## Ready
 
-- `dictionary-construction-abstractions`
-  - Title: Dictionary construction abstractions
-  - Goal: Refine the new pure Python + ctypes dictionary runtime into cleaner word
-    creation, offset derivation, and lookup/tracing abstractions before any execution
-    machinery is layered on top.
-  - Why it matters: Getting the dictionary data model and helper boundaries right now
-    will make later interpreter work much easier and less likely to force rewrites.
-
 - `llvmlite-assume-and-overflow-intrinsics`
   - Title: llvmlite assume and overflow intrinsics
   - Goal: Show how `llvm.assume` and the integer overflow intrinsics are exposed in
@@ -95,6 +87,27 @@ close out. Keep the backlog small and explicit.
   - Lab target: `explorations/lab/generated-layout-wrapper-convention/`
 
 ## Done
+
+- `dictionary-construction-abstractions`
+  - Title: Dictionary construction abstractions
+  - Goal: Refine the pure Python + ctypes dictionary runtime into cleaner word
+    creation, offset derivation, lookup/tracing, and IR-side helper boundaries before
+    any execution machinery is layered on top.
+  - Why it matters: The dictionary data model and helper boundaries needed to settle
+    before threaded execution work could land cleanly.
+  - Success signal: The package exposes a stable dictionary contract, the pure Python
+    runtime preserves the real layout and lookup rules, the IR-side module can create
+    and find words against that same layout, and the linked-list/name-region patterns
+    are captured in labs.
+  - Takeaway: Settle the dictionary as one contract across schema, runtime, layout,
+    and IR helpers before introducing execution; newest-first traversal, canonical
+    `CodeField` metadata, and explicit CFA/DFA helpers make the later interpreter work
+    much simpler.
+  - Package: `src/fythvm/dictionary/runtime.py`, `src/fythvm/dictionary/ir.py`,
+    `docs/dictionary-contract.md`
+  - Labs: `explorations/lab/ctypes-dictionary-runtime/`,
+    `explorations/lab/variable-word-entry-layout/`,
+    `explorations/lab/previous-link-list-ir-abstractions/`
 
 - `nested-schema-family-generation`
   - Title: Nested schema family generation
