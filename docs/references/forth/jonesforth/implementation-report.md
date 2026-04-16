@@ -57,6 +57,182 @@ This split is visible right at the top of the Forth file: it says the system is 
 That split is one of the strongest reasons this code is useful here. It makes the
 bootstrap boundary visible.
 
+## 1A. Minimal Self-Hosting Surface
+
+For `fythvm`, one of the most useful questions to ask of JonesForth is:
+
+- what has to exist before `Jonesforth.f.txt` can start growing the rest of the
+  language without adding more assembly?
+
+The cleanest answer has two layers:
+
+- a strict minimal self-hosting surface
+- a near-core support ring that is not the center of self-hosting, but is still part
+  of the practical kernel/user-visible boundary
+
+### Strict Minimal Self-Hosting Surface
+
+#### Execution Substrate
+
+- `NEXT`
+- `DOCOL`
+- `EXIT`
+- `EXECUTE`
+
+These are the core threaded-execution words/mechanisms. They are what make colon words
+and primitive dispatch actually run.
+
+#### Outer Interpreter
+
+- `WORD`
+- `FIND`
+- `INTERPRET`
+
+These are the core token-reading and token-dispatch words that let the system consume
+input and either execute or compile what it reads.
+
+#### Compile-Mode Control
+
+- `STATE`
+- `IMMEDIATE`
+- `[`
+- `]`
+
+These are the minimal mode-control words/variables needed by the early self-hosted
+layer. `[` and `]` matter immediately in `Jonesforth.f.txt` because the first high-level
+definitions already use them for compile-time literal calculation
+([Jonesforth.f.txt](/Users/manny/fythvm/docs/references/forth/jonesforth/Jonesforth.f.txt:77)).
+
+#### Definition Building
+
+- `CREATE`
+- `,`
+- `:`
+- `;`
+
+These are the words that let the self-hosted layer build new definitions and append
+compiled cells to dictionary memory.
+
+#### Compiled Inline-Operand Primitives
+
+- `LIT`
+- `BRANCH`
+- `0BRANCH`
+- `LITSTRING`
+
+These are the runtime words that make the self-hosted compiler’s emitted structures
+actually mean anything at runtime.
+
+#### Data-Stack Manipulation
+
+- `DROP`
+- `SWAP`
+- `DUP`
+- `OVER`
+- `ROT`
+- `-ROT`
+- `2DROP`
+- `2DUP`
+
+These are the first indispensable ordinary primitives because the early self-hosted
+layer uses them constantly in simple definitions and compiler/control words.
+
+#### Arithmetic
+
+- `1+`
+- `1-`
+- `+`
+- `-`
+- `*`
+- `/MOD`
+
+The high-level layer immediately uses `/MOD` plus stack words to define `/` and `MOD`
+([Jonesforth.f.txt](/Users/manny/fythvm/docs/references/forth/jonesforth/Jonesforth.f.txt:42)).
+
+#### Comparison / Boolean
+
+- `=`
+- `<>`
+- `<`
+- `>`
+- `0=`
+- `0<`
+
+These are part of the practical minimum because the high-level layer quickly defines
+boolean helpers and compilation control relies on condition testing.
+
+#### Bitwise
+
+- `AND`
+- `OR`
+- `XOR`
+- `INVERT`
+
+These are not the very first words used in the file, but they are part of the normal
+primitive base that the self-hosted layer assumes is already there.
+
+#### Memory Access
+
+- `!`
+- `@`
+- `C!`
+- `C@`
+
+These are essential because the self-hosted compiler back-fills branch offsets, reads
+and writes dictionary-linked structures, and later manipulates byte-oriented data.
+
+#### Return/Data Stack Access
+
+- `>R`
+- `R>`
+- `RSP@`
+- `RSP!`
+- `DSP@`
+- `DSP!`
+
+These are part of the exposed control substrate and are assumed by the language as it
+grows.
+
+#### I/O
+
+- `KEY`
+- `EMIT`
+- `TELL`
+
+These are part of the minimal practical surface because even the early self-hosted
+layer defines character and string-printing behavior directly on top of them.
+
+#### Dictionary / Build Helpers
+
+- `LATEST`
+- `HERE`
+- `>CFA`
+
+These are exposed so the self-hosted compiler can inspect the newest definition,
+append into dictionary memory, and compile codeword references.
+
+#### Compile-Time Character Helper
+
+- `CHAR`
+
+`CHAR` belongs in the strict surface because the early file uses it immediately for the
+first compile-time character constants
+([Jonesforth.f.txt](/Users/manny/fythvm/docs/references/forth/jonesforth/Jonesforth.f.txt:82)).
+
+### Near-Core Support Words
+
+The following words are close enough to the bootstrap boundary that they should stay in
+view, but they are not as central to the strict minimal self-hosting surface:
+
+- `HIDDEN`
+- `QUIT`
+
+`HIDDEN` matters because `:` and `;` use it to keep incomplete definitions out of name
+resolution while they are being built. `QUIT` matters because it is the outer loop and
+re-entry point for the interactive system. Both are part of the kernel/user-visible
+surface, but they are not the first words to reach for when isolating the minimal
+self-hosting vocabulary.
+
 ## 2. Dictionary Layout
 
 The dictionary is a linked list of entries

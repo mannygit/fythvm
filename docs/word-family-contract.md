@@ -102,9 +102,21 @@ must already exist in order for the self-hosted layer to grow include:
 
 - `NEXT`, `DOCOL`, `EXIT`, `EXECUTE`
 - `WORD`, `FIND`, `INTERPRET`
-- `STATE`, `IMMEDIATE`
+- `STATE`, `IMMEDIATE`, `[`, `]`
 - `CREATE`, `,`, `:`, `;`
 - `LIT`, `BRANCH`, `0BRANCH`, `LITSTRING`
+- plus the ordinary primitive base:
+  - stack words
+  - arithmetic/comparison/bitwise words
+  - memory words
+  - return/data stack access
+  - basic I/O
+  - `LATEST`, `HERE`, `>CFA`
+  - `CHAR`
+
+The fuller JonesForth-specific breakdown now lives in:
+
+- [docs/references/forth/jonesforth/implementation-report.md](/Users/manny/fythvm/docs/references/forth/jonesforth/implementation-report.md:55)
 
 That minimum set is useful because it shows which distinctions are already required just
 to bootstrap:
