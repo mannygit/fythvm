@@ -6,8 +6,12 @@ import ctypes
 from dataclasses import dataclass
 from typing import Iterator, Sequence
 
-from .families import InstructionFamilyRegistry, WordFamily, family_for_instruction
-from .instructions import InstructionDescriptor, InstructionRegistry, instruction_descriptor_for
+from .families import InstructionFamilyRegistry, WordFamily, family_for_handler_id
+from .instructions import (
+    InstructionDescriptor,
+    InstructionRegistry,
+    instruction_descriptor_for_handler_id,
+)
 from .schema import (
     CELL_SIZE,
     DEFAULT_MEMORY_CELLS,
@@ -100,8 +104,8 @@ class WordRecord:
         return WordPrefix.from_address(self.memory.get_cell_addr(self.index))
 
     @property
-    def code(self) -> CodeField:
-        return self.prefix.code
+    def code_field(self) -> CodeField:
+        return self.prefix.code_field
 
     @property
     def link(self) -> int:
@@ -109,7 +113,7 @@ class WordRecord:
 
     @property
     def name_length(self) -> int:
-        return int(self.code.name_length)
+        return int(self.code_field.name_length)
 
     @property
     def aligned_name_bytes(self) -> int:
@@ -125,25 +129,25 @@ class WordRecord:
 
     @property
     def hidden(self) -> bool:
-        return bool(self.code.hidden)
+        return bool(self.code_field.hidden)
 
     @property
     def immediate(self) -> bool:
-        return bool(self.code.immediate)
+        return bool(self.code_field.immediate)
 
     @property
     def compiling(self) -> bool:
-        return bool(self.code.compiling)
+        return bool(self.code_field.compiling)
 
     @property
-    def instruction(self) -> int:
-        return int(self.code.instruction)
+    def handler_id(self) -> int:
+        return int(self.code_field.handler_id)
 
     def family(self, registry: InstructionFamilyRegistry | None = None) -> WordFamily:
-        return family_for_instruction(self.instruction, registry=registry)
+        return family_for_handler_id(self.handler_id, registry=registry)
 
     def instruction_descriptor(self, registry: InstructionRegistry | None = None) -> InstructionDescriptor | None:
-        return instruction_descriptor_for(self.instruction, registry=registry)
+        return instruction_descriptor_for_handler_id(self.handler_id, registry=registry)
 
     @property
     def cfa_index(self) -> int:
@@ -168,7 +172,7 @@ class DictionaryRuntime:
         self,
         name: str | bytes,
         *,
-        instruction: int = 0,
+        handler_id: int = 0,
         hidden: bool = False,
         immediate: bool = False,
         compiling: bool = False,
@@ -186,12 +190,12 @@ class DictionaryRuntime:
         word_index = self.memory.here + padded_name_size // CELL_SIZE
         prefix = WordPrefix.from_address(self.memory.get_cell_addr(word_index))
         prefix.link = self.memory.latest
-        prefix.code.instruction = instruction
-        prefix.code.hidden = int(hidden)
-        prefix.code.name_length = len(name_bytes)
-        prefix.code.immediate = int(immediate)
-        prefix.code.compiling = int(compiling)
-        prefix.code.unused = 0
+        prefix.code_field.handler_id = handler_id
+        prefix.code_field.hidden = int(hidden)
+        prefix.code_field.name_length = len(name_bytes)
+        prefix.code_field.immediate = int(immediate)
+        prefix.code_field.compiling = int(compiling)
+        prefix.code_field.unused = 0
 
         for offset, cell in enumerate(data):
             self.memory.store_cell(word_index + 2 + offset, int(cell))
@@ -234,7 +238,7 @@ class DictionaryRuntime:
             f"{word.name_bytes.decode('ascii')!r} @ cell {word.index} "
             f"link={word.link} cfa={word.cfa_index} dfa={word.dfa_index} "
             f"hidden={word.hidden} immediate={word.immediate} compiling={word.compiling} "
-            f"instr={word.instruction}"
+            f"handler_id={word.handler_id}"
         )
 
     def debug_lines(self) -> list[str]:

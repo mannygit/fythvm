@@ -110,7 +110,7 @@ class PrimitiveInstruction(IntEnum):
 class InstructionDescriptor:
     """Package metadata for a concrete instruction id."""
 
-    instruction: int
+    handler_id: int
     key: str
     family: WordFamily
     category: InstructionCategory
@@ -118,7 +118,7 @@ class InstructionDescriptor:
 
 
 class InstructionRegistry:
-    """Maps concrete instruction ids to their package metadata."""
+    """Maps concrete handler ids to their package metadata."""
 
     def __init__(self, descriptors: dict[int, InstructionDescriptor] | None = None) -> None:
         self._descriptors: dict[int, InstructionDescriptor] = {}
@@ -127,23 +127,23 @@ class InstructionRegistry:
                 self.register(descriptor)
 
     def register(self, descriptor: InstructionDescriptor) -> None:
-        self._descriptors[descriptor.instruction] = descriptor
+        self._descriptors[descriptor.handler_id] = descriptor
 
-    def descriptor_for_instruction(self, instruction: int) -> InstructionDescriptor | None:
-        return self._descriptors.get(instruction)
+    def descriptor_for_handler_id(self, handler_id: int) -> InstructionDescriptor | None:
+        return self._descriptors.get(handler_id)
 
     def snapshot(self) -> dict[int, InstructionDescriptor]:
         return dict(self._descriptors)
 
 
 def _descriptor(
-    instruction: PrimitiveInstruction,
+    handler_id: PrimitiveInstruction,
     key: str,
     category: InstructionCategory,
     description: str,
 ) -> InstructionDescriptor:
     return InstructionDescriptor(
-        instruction=int(instruction),
+        handler_id=int(handler_id),
         key=key,
         family=PRIMITIVE_EMPTY_FAMILY,
         category=category,
@@ -228,13 +228,13 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
 )
 
 
-def instruction_descriptor_for(
-    instruction: int,
+def instruction_descriptor_for_handler_id(
+    handler_id: int,
     *,
     registry: InstructionRegistry | None = None,
 ) -> InstructionDescriptor | None:
     active_registry = DEFAULT_INSTRUCTIONS if registry is None else registry
-    return active_registry.descriptor_for_instruction(instruction)
+    return active_registry.descriptor_for_handler_id(handler_id)
 
 
 __all__ = [
@@ -243,5 +243,5 @@ __all__ = [
     "InstructionDescriptor",
     "InstructionRegistry",
     "PrimitiveInstruction",
-    "instruction_descriptor_for",
+    "instruction_descriptor_for_handler_id",
 ]

@@ -20,12 +20,12 @@ class CodeFieldView(GeneratedCodeFieldView):
     def write_header(
         self,
         *,
-        instruction: ir.Value,
+        handler_id: ir.Value,
         hidden: ir.Value,
         immediate: ir.Value,
         name_length: ir.Value,
     ) -> None:
-        self.instruction.store(instruction)
+        self.handler_id.store(handler_id)
         self.hidden.store(hidden)
         self.immediate.store(immediate)
         self.name_length.store(name_length)
@@ -33,7 +33,7 @@ class CodeFieldView(GeneratedCodeFieldView):
 
     def load_header_score(self) -> ir.Value:
         builder = self.builder
-        total = builder.zext(self.instruction.load(), I32, name="instruction_i32")
+        total = builder.zext(self.handler_id.load(), I32, name="handler_id_i32")
         total = builder.add(total, builder.zext(self.hidden.load(), I32, name="hidden_i32"), name="with_hidden")
         total = builder.add(
             total,

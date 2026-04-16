@@ -48,7 +48,7 @@ class CodeField(ctypes.Structure):
     __ir_label__ = "code field"
 
     _fields_ = [
-        ("instruction", ctypes.c_uint32, 7),
+        ("handler_id", ctypes.c_uint32, 7),
         ("hidden", ctypes.c_uint32, 1),
         ("name_length", ctypes.c_uint32, 5),
         ("immediate", ctypes.c_uint32, 1),
@@ -63,7 +63,7 @@ class WordPrefix(ctypes.Structure):
 
     _fields_ = [
         ("link", ctypes.c_int32),
-        ("code", CodeField),
+        ("code_field", CodeField),
         ("data_start", ctypes.c_int32 * 0),
     ]
 

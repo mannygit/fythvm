@@ -1,4 +1,4 @@
-"""Named word-family descriptors and instruction-to-family mapping."""
+"""Named word-family descriptors and handler-id-to-family mapping."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ DEFINING_WORD_PRODUCED_FAMILY = WordFamily(
 
 
 class InstructionFamilyRegistry:
-    """Maps stored instruction ids to semantic word-family descriptors."""
+    """Maps stored handler ids to semantic word-family descriptors."""
 
     def __init__(
         self,
@@ -73,24 +73,24 @@ class InstructionFamilyRegistry:
         self._default_family = default_family
         self._mapping: dict[int, WordFamily] = {}
         if mapping is not None:
-            for instruction, family in mapping.items():
-                self.register(instruction, family)
+            for handler_id, family in mapping.items():
+                self.register(handler_id, family)
 
     @property
     def default_family(self) -> WordFamily:
         return self._default_family
 
-    def register(self, instruction: int, family: WordFamily) -> None:
-        if instruction < 0 or instruction > 0x7F:
-            raise ValueError(f"instruction must fit in 7 bits, got {instruction}")
-        self._mapping[instruction] = family
+    def register(self, handler_id: int, family: WordFamily) -> None:
+        if handler_id < 0 or handler_id > 0x7F:
+            raise ValueError(f"handler_id must fit in 7 bits, got {handler_id}")
+        self._mapping[handler_id] = family
 
-    def register_many(self, instructions: Iterable[int], family: WordFamily) -> None:
-        for instruction in instructions:
-            self.register(instruction, family)
+    def register_many(self, handler_ids: Iterable[int], family: WordFamily) -> None:
+        for handler_id in handler_ids:
+            self.register(handler_id, family)
 
-    def family_for_instruction(self, instruction: int) -> WordFamily:
-        return self._mapping.get(instruction, self._default_family)
+    def family_for_handler_id(self, handler_id: int) -> WordFamily:
+        return self._mapping.get(handler_id, self._default_family)
 
     def snapshot(self) -> dict[int, WordFamily]:
         return dict(self._mapping)
@@ -99,13 +99,13 @@ class InstructionFamilyRegistry:
 DEFAULT_INSTRUCTION_FAMILIES = InstructionFamilyRegistry()
 
 
-def family_for_instruction(
-    instruction: int,
+def family_for_handler_id(
+    handler_id: int,
     *,
     registry: InstructionFamilyRegistry | None = None,
 ) -> WordFamily:
     active_registry = DEFAULT_INSTRUCTION_FAMILIES if registry is None else registry
-    return active_registry.family_for_instruction(instruction)
+    return active_registry.family_for_handler_id(handler_id)
 
 
 __all__ = [
@@ -118,5 +118,5 @@ __all__ = [
     "PayloadKind",
     "SHARED_FIELD_INTERPRETER_FAMILY",
     "WordFamily",
-    "family_for_instruction",
+    "family_for_handler_id",
 ]

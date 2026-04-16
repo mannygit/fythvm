@@ -23,7 +23,7 @@ def main() -> None:
     runtime = DictionaryRuntime()
     word = runtime.create_word(
         "dup",
-        instruction=42,
+        handler_id=42,
         hidden=True,
         immediate=True,
         compiling=True,
@@ -35,7 +35,7 @@ def main() -> None:
 
     prefix_addr = runtime.memory.get_cell_addr(word.index)
     prefix_bytes = ctypes.string_at(prefix_addr, ctypes.sizeof(WordPrefix))
-    code_addr = ctypes.addressof(word.prefix.code)
+    code_addr = ctypes.addressof(word.prefix.code_field)
     code_bytes = ctypes.string_at(code_addr, ctypes.sizeof(CodeField))
     code_value = ctypes.c_uint32.from_address(code_addr).value
 
@@ -60,17 +60,18 @@ def main() -> None:
     print()
 
     print("== CodeField Cell ==")
+    print("Note: `CodeField` is intentionally kept as the Forth-facing type name. The inner 7-bit selector is now called `handler_id`.")
     print(f"code_bytes={_hex_bytes(code_bytes)}")
     print(f"raw=0x{code_value:08x} bits={_bit_string(code_value, 32)}")
     print(
         "decoded: "
-        f"instruction={word.code.instruction} hidden={bool(word.code.hidden)} "
-        f"name_length={word.code.name_length} immediate={bool(word.code.immediate)} "
-        f"compiling={bool(word.code.compiling)} unused={word.code.unused}"
+        f"handler_id={word.code_field.handler_id} hidden={bool(word.code_field.hidden)} "
+        f"name_length={word.code_field.name_length} immediate={bool(word.code_field.immediate)} "
+        f"compiling={bool(word.code_field.compiling)} unused={word.code_field.unused}"
     )
     print(
         "bit layout: "
-        "[instruction:7][hidden:1][name_length:5][immediate:1][compiling:1][unused:17]"
+        "[handler_id:7][hidden:1][name_length:5][immediate:1][compiling:1][unused:17]"
     )
     print()
 

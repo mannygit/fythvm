@@ -20,10 +20,10 @@ def render_lookup(runtime: dictionary.DictionaryRuntime, query: str) -> str:
 
 def main() -> None:
     runtime = dictionary.DictionaryRuntime()
-    runtime.create_word("dup", instruction=1, data=(10,))
-    runtime.create_word("swap", instruction=2, immediate=True, data=(20, 21))
-    runtime.create_word("secret", instruction=3, hidden=True, data=(30,))
-    runtime.create_word("emit", instruction=4, compiling=True, data=(40, 41, 42))
+    runtime.create_word("dup", handler_id=1, data=(10,))
+    runtime.create_word("swap", handler_id=2, immediate=True, data=(20, 21))
+    runtime.create_word("secret", handler_id=3, hidden=True, data=(30,))
+    runtime.create_word("emit", handler_id=4, compiling=True, data=(40, 41, 42))
 
     print("== Question ==")
     print("What does a pure Python + ctypes dictionary runtime look like once the fixed records and variable word-entry protocol are combined?")

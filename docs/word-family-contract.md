@@ -67,7 +67,7 @@ More concretely:
 
 So a word family answers questions like:
 
-- what does `instruction` mean for this word?
+- what does `handler_id` mean for this word?
 - what does the payload after `DFA` contain?
 - what helper should construct this kind of word?
 - what helper should execute or otherwise interpret this kind of word later?
@@ -95,7 +95,7 @@ Those are already settled by the dictionary contract.
 
 What can vary is:
 
-- which primitive instruction id is stored in `CodeField.instruction`
+- which execution handler id is stored in `CodeField.handler_id`
 - what the payload after `DFA` contains
 - what construction helper writes that payload
 - what execution helper later interprets that payload
@@ -137,13 +137,13 @@ So the rule is:
 
 The current repo already implies a minimal family model:
 
-- `CodeField.instruction` is a primitive Forth-system instruction id
+- `CodeField.handler_id` is the stored execution handler selector
 - that id is intended to index a jump table / dispatch table later
 - colon-defined words would use the primitive id for `DOCOL`
 
 So the system already has one important semantic decision:
 
-- `instruction` is a **shared behavior selector**
+- `handler_id` is a **shared behavior selector**
 
 That is now explicit in package design at the descriptor/registry level. What remains is
 to decide how much more family-specific behavior should be attached there.
@@ -163,10 +163,10 @@ The important remembered direction is:
 The most important special cases were:
 
 - `DOCOL`
-  - the instruction id selected colon-definition behavior
+  - the handler id selected colon-definition behavior
   - the payload after `DFA` was the thread / sequence to execute
 - `LIT`-style behavior
-  - the instruction id selected literal-handling behavior
+  - the handler id selected literal-handling behavior
   - the payload after `DFA` carried the inline literal data
 - a specific primitive for invoking non-primitives
   - the primitive selected "call this other thing" behavior
@@ -217,17 +217,17 @@ backlog and reference docs.
 Another experimented direction was:
 
 - return to a central loop
-- switch on the primitive instruction id
+- switch on the primitive handler id
 - dispatch behavior from there
 
 This is a different execution form, but it uses the same family selector in
-`CodeField.instruction`.
+`CodeField.handler_id`.
 
 ### Why That Matters Here
 
 These two directions differ in execution form, but they agree on the family contract:
 
-- `instruction` selects shared behavior
+- `handler_id` selects shared behavior
 - some behaviors need no payload
 - some behaviors interpret data after `DFA`
 
@@ -250,7 +250,7 @@ These are the first families the package should reason about explicitly.
 
 Meaning:
 
-- `instruction` selects a primitive behavior implemented directly by the execution
+- `handler_id` selects a primitive behavior implemented directly by the execution
   substrate
 
 Payload:
@@ -271,7 +271,7 @@ This is the default family in the model.
 
 Meaning:
 
-- `instruction` still selects a primitive/shared behavior
+- `handler_id` still selects a primitive/shared behavior
 - but that behavior interprets data after `DFA`
 
 Examples:
@@ -293,7 +293,7 @@ family as real and important.
 
 Meaning:
 
-- `instruction` selects `DOCOL`-style behavior
+- `handler_id` selects `DOCOL`-style behavior
 
 Payload:
 
@@ -327,7 +327,7 @@ the first three core families are explicit in package code.
 
 Meaning:
 
-- `instruction` selects a shared action for a family produced by some defining word
+- `handler_id` selects a shared action for a family produced by some defining word
 
 Payload:
 
@@ -351,9 +351,9 @@ These are the concrete questions this workstream needs to settle.
 
 Options include:
 
-- keep family meaning implicit in raw `instruction` ids only
+- keep family meaning implicit in raw `handler_id` values only
 - define named package-level family descriptors
-- define a registry mapping `instruction` ids to family descriptors
+- define a registry mapping `handler_id` values to family descriptors
 
 Current status:
 
@@ -420,7 +420,7 @@ Those belong to the later execution-invariants and execution-shape workstreams.
 
 The strongest current recommendation is:
 
-- treat `instruction` as the stored selector for a word family
+- treat `handler_id` as the stored selector for a word family
 - make word families explicit in package design
 - keep construction and payload interpretation attached to families, not scattered
 - do not force execution-form decisions into this workstream
@@ -445,7 +445,7 @@ without conflating the two.
 
 This is the order this workstream should walk through.
 
-1. Confirm that `instruction` is the stored family selector.
+1. Confirm that `handler_id` is the stored family selector.
 2. Record the approved first family set in the package/docs.
 3. Decide how family-specific payload interpretation is attached.
 4. Decide how family-specific construction helpers should layer on top of the shared
@@ -458,7 +458,7 @@ This is the order this workstream should walk through.
 If we continue immediately from this document, the next most useful work is:
 
 1. define the first package-level family descriptors
-2. map current known `instruction` meanings onto those descriptors
+2. map current known `handler_id` meanings onto those descriptors
 3. add readable runtime/IR helpers for family-specific payload interpretation
 4. then write `docs/execution-invariants.md`
 

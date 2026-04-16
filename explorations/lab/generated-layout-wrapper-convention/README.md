@@ -21,6 +21,9 @@ ergonomic methods that another engineer is actually meant to touch.
 
 The generated file is the source of truth for schema-derived structure. The wrapper is
 the source of truth for developer ergonomics.
+In the concrete example here, the generated core exposes `CodeField` with a
+`handler_id` bitfield, and the wrapper keeps the surrounding naming explicit and
+readable.
 
 ## How to Run
 

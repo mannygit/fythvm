@@ -15,7 +15,7 @@ I16 = ir.IntType(16)
 
 class GeneratedCodeFieldView(BoundStructView):
     cell = StructField(0)
-    instruction = BitField(0, 0, 7)
+    handler_id = BitField(0, 0, 7)
     hidden = BitField(0, 7, 1)
     immediate = BitField(0, 8, 1)
     name_length = BitField(0, 9, 5)

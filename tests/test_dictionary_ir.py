@@ -38,13 +38,13 @@ def test_dictionary_ir_create_word_matches_runtime_layout() -> None:
     dictionary.create_word(
         _byte_ptr(builder, dup_name, "dup_ptr"),
         I32(3),
-        instruction=I32(10),
+        handler_id=I32(10),
         data_values=(I32(111),),
     )
     last_index = dictionary.create_word(
         _byte_ptr(builder, emit_name, "emit_ptr"),
         I32(4),
-        instruction=I32(20),
+        handler_id=I32(20),
         immediate=True,
         compiling=True,
         data_values=(I32(222), I32(333)),
@@ -61,11 +61,11 @@ def test_dictionary_ir_create_word_matches_runtime_layout() -> None:
 
     words = list(runtime.iter_words())
     assert [word.name_bytes for word in words] == [b"emit", b"dup"]
-    assert words[0].instruction == 20
+    assert words[0].handler_id == 20
     assert words[0].immediate is True
     assert words[0].compiling is True
     assert words[0].read_data_cells(2) == [222, 333]
-    assert words[1].instruction == 10
+    assert words[1].handler_id == 10
     assert words[1].hidden is False
     assert words[1].read_data_cells(1) == [111]
     assert memory.registers.latest == 5
@@ -76,10 +76,10 @@ def test_dictionary_ir_find_word_is_newest_first_and_skips_hidden() -> None:
     configure_llvm()
 
     runtime = DictionaryRuntime()
-    older_dup = runtime.create_word("dup", instruction=1)
-    runtime.create_word("secret", instruction=2, hidden=True)
-    newer_dup = runtime.create_word("dup", instruction=3, immediate=True)
-    runtime.create_word("emit", instruction=4)
+    older_dup = runtime.create_word("dup", handler_id=1)
+    runtime.create_word("secret", handler_id=2, hidden=True)
+    newer_dup = runtime.create_word("dup", handler_id=3, immediate=True)
+    runtime.create_word("emit", handler_id=4)
 
     module = ir.Module(name="dictionary_ir_find_word")
     module.triple = binding.get_default_triple()

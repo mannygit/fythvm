@@ -11,7 +11,7 @@ extra framing.
 
 These points are no longer the real questions:
 
-- `instruction` is the stored family selector
+- `handler_id` is the stored family selector
 - native and later-defined words share one dictionary contract
 - many primitive words likely have empty `DFA`
 - `DOCOL` is the clearest payload-bearing family example
@@ -38,8 +38,8 @@ One thing is now explicitly *not* open:
 The package now has:
 
 - named family descriptors
-- a registry mapping instruction ids to those descriptors
-- raw `instruction` ids still stored in `CodeField`
+- a registry mapping handler ids to those descriptors
+- raw `handler_id` values still stored in `CodeField`
 
 So the remaining question is no longer the base package shape. It is what richer
 meaning should hang off that shape.

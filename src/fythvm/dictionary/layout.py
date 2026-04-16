@@ -18,7 +18,7 @@ I64 = ir.IntType(64)
 
 class CodeFieldView(BoundStructView):
     cell = StructField(0)
-    instruction = BitField(0, 0, 7)
+    handler_id = BitField(0, 0, 7)
     hidden = BitField(0, 7, 1)
     name_length = BitField(0, 8, 5)
     immediate = BitField(0, 13, 1)
@@ -28,7 +28,7 @@ class CodeFieldView(BoundStructView):
 
 class WordPrefixView(BoundStructView):
     link = StructField(0)
-    code = StructField(1)
+    code_field = StructField(1)
     data_start = StructField(2)
 
 

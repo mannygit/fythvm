@@ -51,7 +51,7 @@ def build_module() -> ir.Module:
     raw_fn = ir.Function(module, ir.FunctionType(I16, []), name="raw_write")
     builder = ir.IRBuilder(raw_fn.append_basic_block("entry"))
     generated = generated_handle.bind(builder, code_field_global)
-    generated.instruction.store(I7(9))
+    generated.handler_id.store(I7(9))
     generated.hidden.store(I1(1))
     generated.immediate.store(I1(0))
     generated.name_length.store(I5(6))
@@ -62,7 +62,7 @@ def build_module() -> ir.Module:
     builder = ir.IRBuilder(wrapper_fn.append_basic_block("entry"))
     wrapped = wrapper_handle.bind(builder, code_field_global)
     wrapped.write_header(
-        instruction=I7(33),
+        handler_id=I7(33),
         hidden=I1(0),
         immediate=I1(1),
         name_length=I5(12),

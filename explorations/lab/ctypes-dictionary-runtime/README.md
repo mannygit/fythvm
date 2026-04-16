@@ -8,7 +8,7 @@ records and the variable word-entry protocol are combined?
 ## Setup
 
 This lab uses the real package-level runtime in
-[dictionary.py](/Users/manny/fythvm/src/fythvm/dictionary.py:1). It does not JIT
+[runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:1). It does not JIT
 anything. The point is debug visibility:
 
 - real Python `ctypes` classes
@@ -18,6 +18,9 @@ anything. The point is debug visibility:
 
 This is intentionally the Pythonic consumer end of the earlier labs, not a new raw
 source-of-truth emitter.
+The runtime surfaces the settled naming directly in real Python types:
+`WordPrefix.code_field` holds the metadata cell, and `CodeField.handler_id` is the
+7-bit execution selector stored inside it.
 
 ## How to Run
 

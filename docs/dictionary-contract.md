@@ -136,7 +136,7 @@ That means:
 What can differ is the word-family interpretation:
 
 - native word:
-  - payload may effectively be an instruction id, builtin handler id, or native entry
+  - payload may effectively be a handler id, builtin handler id, or native entry
     reference
 - colon-like defined word:
   - payload may be a thread / sequence / word stream
@@ -167,7 +167,7 @@ For purposes of `docs/dictionary-contract.md`, the working decision should be:
 
 This reduces a few ambiguities:
 
-- `instruction` or whatever replaces it should probably be understood as
+- `handler_id` should be understood as
   family/behavior-selection metadata, not proof that "this is a totally different kind
   of word"
 - future thread-bearing words should still fit under the same dictionary contract
@@ -230,7 +230,7 @@ Current dictionary entry shape in runtime terms:
 2. The fixed word prefix starts immediately after that aligned name blob.
 3. The fixed prefix currently contains:
    - `link`
-   - `code`
+   - `code_field`
    - zero-length `data_start`
 4. The data area begins immediately after the fixed prefix.
 
@@ -246,7 +246,7 @@ Desired target contract:
 
 with `CodeField` as the canonical storage for:
 
-- primitive instruction / dispatch selector
+- execution handler selector (`handler_id`)
 - hidden
 - immediate
 - compiling
@@ -366,7 +366,7 @@ The fixed prefix is the first stable cell-aligned structural record of a word.
 Current prefix:
 
 - `link: i32`
-- `code: CodeField`
+- `code_field: CodeField`
 - `data_start: i32 * 0`
 
 This is a good current shape because it makes three things explicit:
@@ -491,7 +491,7 @@ These need real choices before we should call the contract finished.
 
 Current `CodeField` contains:
 
-- `instruction`
+- `handler_id`
 - `hidden`
 - `name_length`
 - `immediate`
@@ -501,9 +501,9 @@ Current `CodeField` contains:
 This is now mostly settled:
 
 - `CodeField` is the single canonical metadata cell
-- `instruction`, `hidden`, `name_length`, `immediate`, and `compiling` belong there
-- `instruction` is:
-  - a primitive Forth-system instruction id
+- `handler_id`, `hidden`, `name_length`, `immediate`, and `compiling` belong there
+- `handler_id` is:
+  - a primitive Forth-system handler id in the current model
   - used to index a jump table / dispatch table
   - selecting the execution behavior for the word
   - with colon-defined words using the primitive id for `DOCOL`

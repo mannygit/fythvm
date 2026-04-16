@@ -166,7 +166,8 @@ This is the default primitive case:
 
 The pattern is:
 
-- `instruction` selects a primitive behavior
+- current `fythvm` would model the selector there as `handler_id`, selecting a
+  primitive behavior
 - `DFA` is usually empty for that word
 
 That matches the direction already recorded in

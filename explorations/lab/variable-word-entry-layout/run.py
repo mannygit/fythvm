@@ -15,7 +15,7 @@ class RawWordShape:
     aligned_name_bytes: int
     cfa_index: int
     dfa_index: int
-    instruction: int
+    handler_id: int
     hidden: bool
     immediate: bool
     compiling: bool
@@ -34,7 +34,7 @@ def raw_describe_word(word: WordRecord) -> RawWordShape:
         aligned_name_bytes=aligned_name_bytes,
         cfa_index=word.index + 1,
         dfa_index=word.index + 2,
-        instruction=word.instruction,
+        handler_id=word.handler_id,
         hidden=word.hidden,
         immediate=word.immediate,
         compiling=word.compiling,
@@ -48,7 +48,7 @@ def render_raw(shape: RawWordShape) -> str:
         f"name_start_byte={shape.name_start_byte_offset} aligned_name_bytes={shape.aligned_name_bytes} "
         f"link={shape.link} cfa={shape.cfa_index} dfa={shape.dfa_index} "
         f"hidden={shape.hidden} immediate={shape.immediate} compiling={shape.compiling} "
-        f"instr={shape.instruction}"
+        f"handler_id={shape.handler_id}"
     )
 
 
@@ -61,9 +61,9 @@ def render_cells(runtime: DictionaryRuntime) -> list[str]:
 
 def main() -> None:
     runtime = DictionaryRuntime()
-    runtime.create_word("dup", instruction=10, data=(111,))
-    runtime.create_word("swap", instruction=20, hidden=True, data=(222,))
-    runtime.create_word("emit", instruction=30, immediate=True, compiling=True, data=(333, 444))
+    runtime.create_word("dup", handler_id=10, data=(111,))
+    runtime.create_word("swap", handler_id=20, hidden=True, data=(222,))
+    runtime.create_word("emit", handler_id=30, immediate=True, compiling=True, data=(333, 444))
 
     words = list(runtime.iter_words())
     raw_shapes = [raw_describe_word(word) for word in words]

@@ -10,7 +10,7 @@ from .families import (
     PayloadKind,
     SHARED_FIELD_INTERPRETER_FAMILY,
     WordFamily,
-    family_for_instruction,
+    family_for_handler_id,
 )
 from .instructions import (
     DEFAULT_INSTRUCTIONS,
@@ -18,7 +18,7 @@ from .instructions import (
     InstructionDescriptor,
     InstructionRegistry,
     PrimitiveInstruction,
-    instruction_descriptor_for,
+    instruction_descriptor_for_handler_id,
 )
 from .schema import (
     CELL_SIZE,
@@ -73,6 +73,6 @@ __all__ = [
     "aligned_name_region_size",
     "aligned_name_region_size_ir",
     "align_up",
-    "family_for_instruction",
-    "instruction_descriptor_for",
+    "family_for_handler_id",
+    "instruction_descriptor_for_handler_id",
 ]

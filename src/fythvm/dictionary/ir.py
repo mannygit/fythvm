@@ -96,8 +96,8 @@ class DictionaryIR:
 
     def name_length(self, word_index: ir.Value) -> ir.Value:
         word = self.word(word_index)
-        code = word.code.bind(self.code_field_handle)
-        return self.builder.zext(code.name_length.load(name="name_length_i5"), I32, name="name_length")
+        code_field = word.code_field.bind(self.code_field_handle)
+        return self.builder.zext(code_field.name_length.load(name="name_length_i5"), I32, name="name_length")
 
     def aligned_name_bytes(self, name_length: ir.Value, *, name: str = "aligned_name_bytes") -> ir.Value:
         return aligned_name_region_size_ir(self.builder, name_length, name=name)
@@ -158,9 +158,9 @@ class DictionaryIR:
 
         with loop.body():
             word = self.word(current)
-            code = word.code.bind(self.code_field_handle)
+            code_field = word.code_field.bind(self.code_field_handle)
             if visible_only:
-                hidden = code.hidden.load(name="find_word_hidden")
+                hidden = code_field.hidden.load(name="find_word_hidden")
                 visible = self.builder.icmp_unsigned("==", hidden, I1(0), name="find_word_visible")
                 self.builder.cbranch(visible, compare_block, continue_block)
             else:
@@ -221,7 +221,7 @@ class DictionaryIR:
         name_ptr: ir.Value,
         name_length: ir.Value,
         *,
-        instruction: int | ir.Value = 0,
+        handler_id: int | ir.Value = 0,
         hidden: bool | ir.Value = False,
         immediate: bool | ir.Value = False,
         compiling: bool | ir.Value = False,
@@ -240,23 +240,23 @@ class DictionaryIR:
 
         word = self.word(word_index)
         word.link.store(latest)
-        code = word.code.bind(self.code_field_handle)
-        instr_value = _i32_value(instruction)
-        if instr_value.type.width > 7:
-            instr_value = self.builder.trunc(instr_value, ir.IntType(7), name="instruction_i7")
-        elif instr_value.type.width < 7:
-            instr_value = self.builder.zext(instr_value, ir.IntType(7), name="instruction_i7")
-        code.instruction.store(instr_value)
-        code.hidden.store(_i1_flag(hidden))
+        code_field = word.code_field.bind(self.code_field_handle)
+        handler_value = _i32_value(handler_id)
+        if handler_value.type.width > 7:
+            handler_value = self.builder.trunc(handler_value, ir.IntType(7), name="handler_id_i7")
+        elif handler_value.type.width < 7:
+            handler_value = self.builder.zext(handler_value, ir.IntType(7), name="handler_id_i7")
+        code_field.handler_id.store(handler_value)
+        code_field.hidden.store(_i1_flag(hidden))
         name_length_i5 = name_length
         if name_length_i5.type.width > 5:
             name_length_i5 = self.builder.trunc(name_length_i5, ir.IntType(5), name="name_length_i5")
         elif name_length_i5.type.width < 5:
             name_length_i5 = self.builder.zext(name_length_i5, ir.IntType(5), name="name_length_i5")
-        code.name_length.store(name_length_i5)
-        code.immediate.store(_i1_flag(immediate))
-        code.compiling.store(_i1_flag(compiling))
-        code.unused.store(ir.IntType(17)(0))
+        code_field.name_length.store(name_length_i5)
+        code_field.immediate.store(_i1_flag(immediate))
+        code_field.compiling.store(_i1_flag(compiling))
+        code_field.unused.store(ir.IntType(17)(0))
 
         for offset, value in enumerate(data_values):
             cell_value = _i32_value(value)
