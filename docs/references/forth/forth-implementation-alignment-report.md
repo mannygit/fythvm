@@ -51,12 +51,11 @@ For `fythvm`, the combined lesson is:
    architectural decisions.
 3. We should not copy JonesForth literally where Moving Forth makes clear that the
    right answer depends on runtime and tooling constraints.
-4. Our immediate work should continue to prioritize:
-   - dictionary/data layout clarity
-   - code/data projection machinery
-   - defining-word / code-field abstractions
-   - explicit stack/runtime semantics
-   before full execution.
+4. The next work should now shift from basic dictionary/layout stabilization toward:
+   - defining-word / word-family abstractions
+   - explicit execution invariants
+   - stack/runtime semantics that future executors must preserve
+   while still deferring commitment to one execution form.
 
 ## 1. What Each Reference Is Good For
 
@@ -144,6 +143,15 @@ This supports the path the codebase has already taken:
 This is not procrastination from "real interpreter work." It is the same order these
 systems say matters.
 
+At this point in `fythvm`, much of that substrate-first work is no longer only a
+direction. It exists:
+
+- schema as source of truth
+- generated layout projections
+- an explicit runtime dictionary package
+- an IR-side dictionary package layer
+- a written dictionary contract
+
 ## 3. Strong Alignment: Dual-Stack Semantics Matter
 
 JonesForth makes the dual-stack model explicit:
@@ -216,6 +224,15 @@ This suggests a durable architecture:
 4. semantic/runtime layer
 
 That architecture now has a strong historical justification behind it.
+
+In `fythvm`, this is no longer hypothetical. The package is already close to this
+shape:
+
+- `dictionary.schema`
+- generated `dictionary.layout`
+- wrapper/edit conventions explored explicitly
+- `dictionary.runtime`
+- `dictionary.ir`
 
 ## 5. Strong Alignment: Defining Words Are Central
 
@@ -423,9 +440,10 @@ What remains open for `fythvm`:
 
 Current recommendation:
 
-- continue stabilizing the current dictionary runtime and schema/layout generation
-- keep newest-first linked lookup and hidden-word skipping as durable invariants
+- treat newest-first linked lookup and hidden-word skipping as settled invariants
+- treat the current schema/layout/runtime/IR split as substantially established
 - keep CFA/DFA-like helpers explicit rather than burying them
+- stop treating basic dictionary structure as the main open problem
 
 ### B. Threading Model
 
@@ -504,6 +522,13 @@ Why:
 - this work is already underway in the codebase
 - it will constrain later execution work productively
 
+Current status in `fythvm`:
+
+- substantially complete
+- the dictionary contract is written
+- the runtime and IR layers follow the same fixed-prefix and name-region model
+- newest-first traversal and hidden-word skipping are already implemented
+
 ### Step 2: Lock down runtime record architecture
 
 Decide and document:
@@ -518,6 +543,13 @@ Why:
 - this is already emerging in `fythvm`
 - it is our host-side equivalent of making the kernel substrate explicit
 
+Current status in `fythvm`:
+
+- substantially complete
+- schema/layout/runtime separation exists
+- generated layout is real package infrastructure
+- wrapper conventions are being explored explicitly rather than ad hoc
+
 ### Step 3: Define the "word family" abstraction more explicitly
 
 Decide:
@@ -530,6 +562,14 @@ Why:
 
 - this is where JonesForth's concrete dictionary and Moving Forth's code-field theory
   meet most productively
+
+Current status in `fythvm`:
+
+- partially complete
+- `instruction` already has a clear meaning as primitive dispatch selector
+- native and later-defined words already share one dictionary contract
+- but there is not yet a first-class package abstraction for named word families and
+  their payload interpretation
 
 ### Step 4: Specify execution invariants before choosing execution form
 
@@ -546,6 +586,12 @@ Why:
 - this prevents premature commitment to one runtime lowering style
 - it also prevents layout abstractions from drifting away from what execution needs
 
+Current status in `fythvm`:
+
+- still needed
+- pieces of the answer exist across the dictionary contract and the reference reports
+- but there is not yet one focused execution-invariants document
+
 ### Step 5: Only then choose the first real execution shape
 
 Possible candidates:
@@ -557,6 +603,10 @@ Possible candidates:
 
 Use JonesForth for "what a finished system does" and Moving Forth for "what tradeoffs
 this commits us to."
+
+Current status in `fythvm`:
+
+- correctly deferred
 
 ## 12. What Looks Durable Enough To Adopt Now
 
@@ -570,6 +620,14 @@ These look stable enough to treat as strong reference-backed direction:
 - shared-family behavior as a core design concept
 - explicit bootstrap phase boundaries
 
+In addition, the following now look stable enough in the actual codebase:
+
+- schema as source of truth
+- generated layout as mechanical projection
+- runtime and IR dictionary layers consuming the same contract
+- linked-list IR helpers and aligned name-region comparison as real package/lab
+  patterns
+
 ## 13. What Should Remain Open
 
 These should stay open a bit longer:
@@ -582,6 +640,13 @@ These should stay open a bit longer:
 
 These are the places where Moving Forth is especially important, because it keeps us
 from prematurely inheriting JonesForth's specific implementation.
+
+The practical meaning of that list has now changed. The main open architectural work is
+no longer "what is the dictionary?" or "how should layout generation work?" It is:
+
+- how to model word families explicitly
+- what execution invariants any future engine must preserve
+- and only then which execution form best fits the host/JIT environment
 
 ## 14. Bottom Line
 
