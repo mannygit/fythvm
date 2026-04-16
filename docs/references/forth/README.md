@@ -24,6 +24,14 @@ Reference captures pulled from `Forth_Links.txt`.
 - [Fitting a Forth in 512 bytes](./miniforth.md)
   Source: <https://compilercrim.es/bootstrap/miniforth/>
 
+## Synthesis Reports
+
+- [JonesForth vs Moving Forth Alignment Report](./forth-implementation-alignment-report.md)
+  Includes:
+  - shared implementation invariants
+  - concrete deviations
+  - decision guidance for `fythvm`
+
 ## Notes
 
 - These are readable markdown captures, not fidelity-preserving archival snapshots.
