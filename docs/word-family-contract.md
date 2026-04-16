@@ -81,7 +81,7 @@ So a word family answers questions like:
 It does **not** automatically answer:
 
 - whether relevant data lives after the word's own `DFA`
-- whether relevant data is an inline operand in the active execution stream
+- whether relevant data is an inline operand in the active thread
 - whether the word has immediate or compile-affecting behavior
 
 JonesForth's minimum self-hosting substrate makes this boundary clearer. The words that
@@ -133,7 +133,7 @@ What can vary is:
 What does **not** yet belong solely to the family layer is:
 
 - whether associated data is word-local after the word's own `DFA`
-- whether associated data is an inline operand in the active execution stream
+- whether associated data is an inline operand in the active thread
 - whether the word has compile-time / immediate behavior
 
 Those are adjacent axes that still need to be modeled cleanly.
@@ -149,8 +149,8 @@ This is the family layer proper:
 
 - what shared runtime behavior does `handler_id` select?
 - examples:
-  - payload-empty primitive behavior
-  - primitive behavior that consumes inline execution-stream operands
+  - primitive-empty behavior
+  - primitive behavior that consumes inline thread operands
   - `DOCOL` / colon-thread behavior
 
 Given the JonesForth substrate above, the strongest current runtime split is:
@@ -160,7 +160,7 @@ Given the JonesForth substrate above, the strongest current runtime split is:
 - `colon-thread`
 
 `primitive-payload` was a useful transitional name, but the more precise pressure from
-JonesForth is specifically around inline execution-stream operands:
+JonesForth is specifically around inline operands in the current thread:
 
 - `LIT`
 - `BRANCH`
@@ -173,7 +173,7 @@ This is separate from family and still needs clearer modeling:
 
 - no extra associated data
 - word-local data after the word's own `DFA`
-- inline operands in the active execution stream
+- inline operands in the active thread
 
 `DOCOL` is the clearest word-local case:
 
@@ -184,7 +184,7 @@ This is separate from family and still needs clearer modeling:
 
 - the handler selects `LIT` behavior
 - the literal is not stored in the `LIT` word's own dictionary entry
-- the literal is the next inline cell in the active execution stream
+- the literal is the next inline cell in the active thread
 
 So `LIT` is exactly why "payload after `DFA`" is too blunt as a general explanation.
 
@@ -240,7 +240,7 @@ They are organizational metadata for concrete instructions:
 But they do not answer the family questions:
 
 - does this word share a runtime handler family?
-- is this a primitive-empty, primitive-payload, or colon-thread word?
+- is this a primitive-empty, primitive-inline-operand, or colon-thread word?
 
 So the rule is:
 
@@ -290,7 +290,7 @@ The most important special cases were:
   - the word's own `DFA` began the thread / sequence to execute
 - `LIT`-style behavior
   - the handler id selected literal-handling behavior
-  - the inline execution stream carried the literal data
+  - the current thread carried the literal data inline
 - a specific primitive for invoking non-primitives
   - the primitive selected "call this other thing" behavior
   - the associated operand/data location was still a separate question
@@ -309,9 +309,9 @@ It was closer to:
 That is useful because it makes the family model less abstract. It suggests a very
 reasonable first package-level split:
 
-- payload-empty primitive families
-- payload-bearing primitive families
-- colon/thread families
+- primitive-empty
+- primitive-inline-operand
+- colon-thread
 
 It also sharpens one important design constraint:
 
@@ -356,7 +356,7 @@ These two directions differ in execution form, but they agree on the family cont
 - `handler_id` selects shared behavior
 - some behaviors need no additional data
 - some behaviors use word-local data
-- some behaviors consume inline operands in the active stream
+- some behaviors consume inline operands in the active thread
 
 That is exactly why this workstream should stop at the family boundary and not choose
 the execution mechanism yet.
@@ -367,15 +367,15 @@ The current core family breakdown is now considered approved.
 
 The approved initial family set is:
 
-1. **payload-empty primitive**
-2. **payload-bearing primitive**
+1. **primitive-empty**
+2. **primitive-inline-operand**
 3. **colon-thread**
 
 These are the first families the package should reason about explicitly.
 They should be understood as a **behavior-level split**, not a complete explanation of
 operand location or compile-time semantics.
 
-### 1. Payload-Empty Primitive
+### 1. Primitive-Empty
 
 Meaning:
 
@@ -396,35 +396,36 @@ Examples:
 
 This is the default family in the model.
 
-### 2. Payload-Bearing Primitive
+### 2. Primitive-Inline-Operand
 
 Meaning:
 
 - `handler_id` still selects a primitive/shared behavior
-- but that behavior is associated with additional data or operands beyond the selector
+- but that behavior consumes operand data inline from the current thread
 
 Status:
 
-- this remains a useful provisional bucket
-- but it is not yet precise enough to distinguish:
-  - word-local data after the word's own `DFA`
-  - inline operands in the active execution stream
+- this is now the preferred name for the JonesForth cases like `LIT`, `BRANCH`,
+  `0BRANCH`, and `LITSTRING`
+- older `primitive-payload` / "payload-bearing primitive" wording should be understood
+  as transitional phrasing, not the preferred contract vocabulary
 
 Examples:
 
-- `LIT`-style behavior
-- branch-style behavior
-- a primitive that invokes some non-primitive target
-- later special control/data-bearing primitives
+- `LIT`
+- `BRANCH`
+- `0BRANCH`
+- `LITSTRING`
+- possibly a primitive that invokes some non-primitive target later
 
 This matters because it prevents the model from collapsing into a false dichotomy of:
 
-- primitives have no payload
-- non-primitives have payload
+- primitives have no associated operands
+- non-primitives have associated operands
 
 The older `~/fyth` direction and the JonesForth/Moving references all support this
-behavior-level bucket as real and important, even though it still needs a second axis
-for operand location.
+behavior-level bucket as real and important, even though broader operand-location
+questions still remain for later families.
 
 ### 3. Colon-Thread
 
@@ -523,7 +524,7 @@ associated data is:
 
 - absent
 - word-local after the word's own `DFA`
-- inline in the active execution stream
+- inline in the active thread
 
 What is still open is whether this becomes:
 
@@ -545,7 +546,7 @@ Current recommendation:
 - it should be valid for a helper to say:
   - this family has no additional associated data
   - this family uses word-local `DFA` data
-  - this family consumes inline execution-stream operands
+  - this family consumes inline thread operands
 
 ### E. How Should Construction Work?
 
@@ -594,11 +595,12 @@ The strongest current recommendation is:
 - do not force operand-location semantics or compile-time behavior into the family
   layer prematurely
 - do not force execution-form decisions into this workstream
-- let the default case be a payload-empty primitive family
-- treat payload-bearing primitives and `DOCOL` as the first concrete special cases
+- let the default case be `primitive-empty`
+- treat `primitive-inline-operand` and `DOCOL` / `colon-thread` as the first concrete
+  special cases
 - treat the three approved core families as settled:
-  - payload-empty primitive
-  - payload-bearing primitive
+  - primitive-empty
+  - primitive-inline-operand
   - colon-thread
 
 That gives us a cleaner bridge from:
@@ -642,9 +644,9 @@ If we continue immediately from this document, the next most useful work is:
 
 The current notes suggest the first concrete descriptor set should probably be:
 
-1. payload-empty primitive family
-2. payload-bearing primitive family
-3. `DOCOL` / colon-thread family
+1. `primitive-empty`
+2. `primitive-inline-operand`
+3. `DOCOL` / `colon-thread`
 
 That initial set is now approved at the document level.
 

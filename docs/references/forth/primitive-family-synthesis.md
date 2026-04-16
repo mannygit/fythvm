@@ -36,7 +36,7 @@ The strongest shared family set is:
 For `fythvm`, the first practical implementation cut is probably:
 
 1. `primitive-empty`
-2. `primitive-payload`
+2. `primitive-inline-operand`
 3. `colon-thread`
 
 with the last two generalized families kept explicit in the design, but allowed to land
@@ -244,7 +244,7 @@ JonesForth shows real kernel words doing this:
 - `0BRANCH`
 - `LITSTRING`
 
-So the `primitive-payload` family is not just theory. It is directly represented in a
+So the `primitive-inline-operand` family is not just theory. It is directly represented in a
 finished working system.
 
 ### Dictionary/compiler control can stay inside the primitive family
@@ -275,7 +275,7 @@ Putting both sources together, the best current family model looks like this.
    - primitive-dispatch word
    - no meaningful payload after `DFA`
 
-2. **primitive-payload**
+2. **primitive-inline-operand**
    - primitive-dispatch word
    - payload interpreted according to the primitive
    - examples: `LIT`, `BRANCH`, `0BRANCH`, `LITSTRING`

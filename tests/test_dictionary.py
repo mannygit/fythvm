@@ -89,13 +89,13 @@ def test_instruction_family_registry_defaults_and_overrides() -> None:
     registry = dictionary.InstructionFamilyRegistry(
         mapping={
             7: dictionary.COLON_THREAD_FAMILY,
-            8: dictionary.PRIMITIVE_PAYLOAD_FAMILY,
+            8: dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY,
         }
     )
 
     assert registry.family_for_handler_id(1) is dictionary.PRIMITIVE_EMPTY_FAMILY
     assert registry.family_for_handler_id(7) is dictionary.COLON_THREAD_FAMILY
-    assert registry.family_for_handler_id(8) is dictionary.PRIMITIVE_PAYLOAD_FAMILY
+    assert registry.family_for_handler_id(8) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
     assert dictionary.family_for_handler_id(7, registry=registry) is dictionary.COLON_THREAD_FAMILY
 
 
@@ -107,13 +107,13 @@ def test_word_record_family_uses_registry_mapping() -> None:
     registry = dictionary.InstructionFamilyRegistry(
         mapping={
             7: dictionary.COLON_THREAD_FAMILY,
-            8: dictionary.PRIMITIVE_PAYLOAD_FAMILY,
+            8: dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY,
         }
     )
 
     assert plain_word.family() is dictionary.PRIMITIVE_EMPTY_FAMILY
     assert thread_word.family(registry) is dictionary.COLON_THREAD_FAMILY
-    assert literal_word.family(registry) is dictionary.PRIMITIVE_PAYLOAD_FAMILY
+    assert literal_word.family(registry) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
     assert thread_word.family(registry).has_payload is True
     assert plain_word.family(registry).has_payload is False
 

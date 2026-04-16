@@ -36,10 +36,10 @@ PRIMITIVE_EMPTY_FAMILY = WordFamily(
     description="Primitive-dispatch word with no family-interpreted payload after DFA.",
 )
 
-PRIMITIVE_PAYLOAD_FAMILY = WordFamily(
-    key="primitive-payload",
+PRIMITIVE_INLINE_OPERAND_FAMILY = WordFamily(
+    key="primitive-inline-operand",
     payload_kind=PayloadKind.INLINE_DATA,
-    description="Primitive-dispatch word that interprets payload after DFA.",
+    description="Primitive-dispatch word that consumes operand data inline from the current thread.",
 )
 
 COLON_THREAD_FAMILY = WordFamily(
@@ -114,7 +114,7 @@ __all__ = [
     "DEFINING_WORD_PRODUCED_FAMILY",
     "InstructionFamilyRegistry",
     "PRIMITIVE_EMPTY_FAMILY",
-    "PRIMITIVE_PAYLOAD_FAMILY",
+    "PRIMITIVE_INLINE_OPERAND_FAMILY",
     "PayloadKind",
     "SHARED_FIELD_INTERPRETER_FAMILY",
     "WordFamily",

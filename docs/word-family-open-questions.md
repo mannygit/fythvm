@@ -15,13 +15,13 @@ These points are no longer the real questions:
 - native and later-defined words share one dictionary contract
 - many primitive words likely have no additional associated data
 - `DOCOL` is the clearest word-local `DFA` case
-- some primitive families consume inline execution-stream operands
+- some primitive families consume inline thread operands
   - `LIT`
   - `BRANCH`
   - `0BRANCH`
   - `LITSTRING`
 - the approved initial family set is:
-  - payload-empty primitive
+  - primitive-empty
   - primitive-inline-operand
   - colon-thread
 
@@ -60,7 +60,7 @@ boundary between:
 `LIT` is the clearest sign this matters:
 
 - it is runtime behavior selected by a handler
-- it consumes inline execution-stream data
+- it consumes inline thread data
 - that is not the same as word-local data after the `LIT` word's own `DFA`
 
 So the first open question is:
@@ -88,12 +88,12 @@ The important distinctions are:
 
 - no additional associated data
 - word-local data after the word's own `DFA`
-- inline operands in the active execution stream
+- inline operands in the active thread
 
 The current leading candidate is:
 
 - treat inline-operand behavior as its own explicit runtime family concern, rather than
-  bundling it into a vague "payload-bearing primitive" bucket
+  bundling it into the older, vaguer `primitive-payload` bucket
 
 ## 3. Where Should Family-Owned Helper APIs Live?
 

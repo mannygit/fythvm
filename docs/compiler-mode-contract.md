@@ -180,7 +180,7 @@ JonesForth strongly suggests we should think in terms of both:
   - are we interpreting now, or compiling a definition now?
 - **per-word flags**
   - does this word execute immediately while compiling?
-  - does this word have some compile-affecting role?
+  - does this word need compile-layer legality or wrong-mode checks?
 
 That suggests the eventual model in `fythvm` will probably need:
 

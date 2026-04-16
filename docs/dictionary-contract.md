@@ -284,19 +284,19 @@ So, to be explicit:
 Current code points:
 
 - aligned name size helper:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:20)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:26)
 - word creation:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:159)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:167)
 - IR word creation:
   - [ir.py](/Users/manny/fythvm/src/fythvm/dictionary/ir.py:219)
 - newest-first traversal:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:195)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:201)
 - hidden-word skipping:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:203)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:214)
 - IR hidden-word skipping and newest-first lookup:
   - [ir.py](/Users/manny/fythvm/src/fythvm/dictionary/ir.py:145)
 - CFA/DFA helpers:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:140)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:149)
 
 Concrete inspector:
 
