@@ -1,0 +1,7 @@
+slug = "previous-link-list-ir-abstractions"
+title = "Previous-Link List IR Abstractions"
+summary = "Compare a raw byte-offset previous-link list emitter against a small helper that centralizes the node convention and traversal scaffolding without hiding the CFG."
+status = "stable"
+tags = ["llvmlite", "linked-list", "dictionary", "linear-memory", "control-flow", "ir"]
+run = "uv run python explorations/lab/previous-link-list-ir-abstractions/run.py"
+agent_authored = true

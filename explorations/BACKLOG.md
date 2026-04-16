@@ -160,6 +160,21 @@ close out. Keep the backlog small and explicit.
     as long as it preserves the real layout and lookup rules.
   - Lab: `explorations/lab/ctypes-dictionary-runtime/`
 
+- `previous-link-list-ir-abstractions`
+  - Title: Previous-link list IR abstractions
+  - Goal: Rebuild the old `~/fyth` linked-list helper shape around a node convention
+    of `[previous link][data...]`, and show the modern boundary between raw emission
+    and a small traversal helper.
+  - Why it matters: The dictionary is now explicitly a newest-first linked list, so
+    the IR/codegen side needs a clear place to own the previous-link node convention
+    without hiding the traversal CFG.
+  - Success signal: The lab emits raw and helper-based append/count/get-nth functions,
+    proves they produce identical memory, and captures the null-sentinel and
+    offset-minus-one-cell failure modes explicitly.
+  - Takeaway: Let the helper own the node convention and loop scaffolding; keep the
+    actual previous-link traversal shape visible.
+  - Lab: `explorations/lab/previous-link-list-ir-abstractions/`
+
 - `llvmlite-minimal-jit-pipeline`
   - Title: Minimal llvmlite JIT pipeline
   - Goal: Capture the smallest complete path from IR construction to executable code.
