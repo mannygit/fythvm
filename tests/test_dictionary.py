@@ -119,6 +119,37 @@ def test_word_record_family_uses_registry_mapping() -> None:
     assert plain_word.family(registry).has_payload is False
 
 
+def test_instruction_registry_returns_category_for_primitive_empty_instruction() -> None:
+    descriptor = dictionary.instruction_descriptor_for(dictionary.PrimitiveInstruction.DUP)
+
+    assert descriptor is not None
+    assert descriptor.instruction == int(dictionary.PrimitiveInstruction.DUP)
+    assert descriptor.key == "DUP"
+    assert descriptor.family is dictionary.PRIMITIVE_EMPTY_FAMILY
+    assert descriptor.category is dictionary.InstructionCategory.STACK
+
+
+def test_instruction_registry_leaves_unregistered_instruction_without_descriptor() -> None:
+    assert dictionary.instruction_descriptor_for(120) is None
+
+
+def test_instruction_descriptor_is_separate_from_family_mapping() -> None:
+    runtime = dictionary.DictionaryRuntime()
+    word = runtime.create_word("dup", instruction=int(dictionary.PrimitiveInstruction.DUP))
+    family_registry = dictionary.InstructionFamilyRegistry(
+        mapping={
+            int(dictionary.PrimitiveInstruction.DUP): dictionary.COLON_THREAD_FAMILY,
+        }
+    )
+
+    descriptor = word.instruction_descriptor()
+    assert descriptor is not None
+    assert descriptor.category is dictionary.InstructionCategory.STACK
+    assert descriptor.family is dictionary.PRIMITIVE_EMPTY_FAMILY
+    assert word.family(family_registry) is dictionary.COLON_THREAD_FAMILY
+    assert word.instruction_descriptor() is descriptor
+
+
 def test_dictionary_runtime_raises_when_memory_is_exhausted() -> None:
     memory = dictionary.DictionaryMemory()
     runtime = dictionary.DictionaryRuntime(memory)

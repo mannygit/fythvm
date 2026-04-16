@@ -102,6 +102,37 @@ What can vary is:
 
 This is the actual family boundary.
 
+## Instruction Categories Are Separate
+
+The package may also carry **instruction categories** such as:
+
+- stack
+- arithmetic
+- comparison/bitwise
+- memory
+- return/data stack control
+- parser/I/O
+- dictionary/compiler
+- host bridge
+
+These are **not** families.
+
+They are organizational metadata for concrete instructions:
+
+- useful for browsing
+- useful for grouping implementations
+- useful for inventory/reporting
+
+But they do not answer the family questions:
+
+- does this word have family payload after `DFA`?
+- is this a primitive-empty, primitive-payload, or colon-thread word?
+
+So the rule is:
+
+- **family** = semantic/runtime concern
+- **instruction category** = organizational/package metadata
+
 ## Current Minimal Model In `fythvm`
 
 The current repo already implies a minimal family model:

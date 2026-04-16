@@ -26,6 +26,11 @@ These points are no longer the real questions:
 So the current workstream is no longer trying to answer whether word families exist.
 It is trying to make them more useful and actionable in package code.
 
+One thing is now explicitly *not* open:
+
+- instruction categories such as stack/arithmetic/memory are not a second family system
+- they are organizational metadata on concrete instructions
+
 ## Current Open Questions
 
 ### 1. How Should Payload Interpretation Be Attached?

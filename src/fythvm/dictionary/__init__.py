@@ -12,6 +12,14 @@ from .families import (
     WordFamily,
     family_for_instruction,
 )
+from .instructions import (
+    DEFAULT_INSTRUCTIONS,
+    InstructionCategory,
+    InstructionDescriptor,
+    InstructionRegistry,
+    PrimitiveInstruction,
+    instruction_descriptor_for,
+)
 from .schema import (
     CELL_SIZE,
     DEFAULT_MEMORY_CELLS,
@@ -34,17 +42,22 @@ __all__ = [
     "CELL_SIZE",
     "COLON_THREAD_FAMILY",
     "DEFAULT_INSTRUCTION_FAMILIES",
+    "DEFAULT_INSTRUCTIONS",
     "DEFAULT_MEMORY_CELLS",
     "DEFAULT_STACK_CELLS",
     "DEFINING_WORD_PRODUCED_FAMILY",
     "HIDDEN_MASK",
     "IMMEDIATE_MASK",
     "InstructionFamilyRegistry",
+    "InstructionCategory",
+    "InstructionDescriptor",
+    "InstructionRegistry",
     "NAME_LENGTH_MASK",
     "NULL_INDEX",
     "PRIMITIVE_EMPTY_FAMILY",
     "PRIMITIVE_PAYLOAD_FAMILY",
     "PayloadKind",
+    "PrimitiveInstruction",
     "CodeField",
     "DictionaryIR",
     "DictionaryMemory",
@@ -61,4 +74,5 @@ __all__ = [
     "aligned_name_region_size_ir",
     "align_up",
     "family_for_instruction",
+    "instruction_descriptor_for",
 ]

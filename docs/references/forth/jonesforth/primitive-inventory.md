@@ -5,6 +5,10 @@ This document inventories the **assembly-defined primitive words** in
 relevant to `fythvm`, and finally maps those primitives onto the family thinking in
 [docs/word-family-contract.md](/Users/manny/fythvm/docs/word-family-contract.md:1).
 
+The `Category` column below is an **organizational grouping**, not a family. Families
+remain the semantic/runtime split such as `payload-empty primitive`,
+`payload-bearing primitive`, and `colon-thread`.
+
 ## Scope
 
 For this inventory, a **primitive word** means a dictionary entry introduced by the
