@@ -116,6 +116,92 @@ So the system already has one important semantic decision:
 What is still missing is making that explicit in package design instead of leaving it
 as an implicit reading of one field.
 
+## Concrete `~/fyth` Direction
+
+The older `~/fyth` work gives a sharper practical picture of what this family model was
+trying to be.
+
+The important remembered direction is:
+
+- primitive Forth words were represented by integers
+- those integers were indexes into a jump table
+- most primitive words had no meaningful payload after `DFA`
+- some special behaviors did use payload after `DFA`
+
+The most important special cases were:
+
+- `DOCOL`
+  - the instruction id selected colon-definition behavior
+  - the payload after `DFA` was the thread / sequence to execute
+- `LIT`-style behavior
+  - the instruction id selected literal-handling behavior
+  - the payload after `DFA` carried the inline literal data
+- a specific primitive for invoking non-primitives
+  - the primitive selected "call this other thing" behavior
+  - the payload after `DFA` was the thing to invoke
+
+So the practical model was not:
+
+- every word has a large family-specific payload
+
+It was closer to:
+
+- most primitive/native words are just behavior selectors
+- only some families need payload after `DFA`
+- colon/threaded behavior and literal-bearing behavior are the canonical examples
+
+That is useful because it makes the family model less abstract. It suggests a very
+reasonable first package-level split:
+
+- payload-empty primitive families
+- payload-bearing primitive families
+- colon/thread families
+
+It also sharpens one important design constraint:
+
+- the word-family abstraction should not assume that every family has meaningful
+  payload after `DFA`
+- it should allow the common case to be:
+  - selector only
+  - no payload interpretation needed
+
+## Execution-Shape Experiments Already Suggested By `~/fyth`
+
+The old work also suggests two distinct execution directions that this family model
+must eventually support.
+
+### Tail-Called Primitive Dispatch
+
+One direction was:
+
+- each primitive ends in a tail call
+- the execution substrate advances by chaining primitive calls directly
+
+This is the direction behind the `musttail` / continuation work already noted in the
+backlog and reference docs.
+
+### Loop + Switch Primitive Dispatch
+
+Another experimented direction was:
+
+- return to a central loop
+- switch on the primitive instruction id
+- dispatch behavior from there
+
+This is a different execution form, but it uses the same family selector in
+`CodeField.instruction`.
+
+### Why That Matters Here
+
+These two directions differ in execution form, but they agree on the family contract:
+
+- `instruction` selects shared behavior
+- some behaviors need no payload
+- some behaviors interpret data after `DFA`
+
+That is exactly why this workstream should stop at the family boundary and not choose
+the execution mechanism yet.
+
 ## Initial Family Candidates
 
 These are the first meaningful families the repo should reason about.
@@ -129,8 +215,8 @@ Meaning:
 
 Payload:
 
-- often empty
-- or small family-specific metadata when needed
+- usually empty
+- sometimes small family-specific metadata when needed
 
 Examples:
 
@@ -138,6 +224,8 @@ Examples:
 - stack operators
 - memory primitives
 - host/runtime bridge primitives
+
+This is now the clearest default family in the model.
 
 ### 2. Colon-Defined Family
 
@@ -152,7 +240,30 @@ Payload:
 This is the first family that turns the dictionary from a symbol table into a proper
 threaded language substrate.
 
-### 3. Defining-Word-Produced Families
+This is also the clearest example of a payload-bearing family.
+
+### 3. Payload-Bearing Primitive Families
+
+Meaning:
+
+- `instruction` still selects a primitive/shared behavior
+- but that behavior interprets data after `DFA`
+
+Examples:
+
+- `LIT`-style behavior
+- a primitive that invokes some non-primitive target
+- later special control/data-bearing primitives
+
+This matters because it prevents the model from collapsing into a false dichotomy of:
+
+- primitives have no payload
+- non-primitives have payload
+
+The old `~/fyth` direction suggests that some primitives do have meaningful payload,
+just not most of them.
+
+### 4. Defining-Word-Produced Families
 
 Meaning:
 
@@ -188,6 +299,11 @@ Current recommendation:
 - move toward named package-level family descriptors
 - keep the raw integer id as the stored `CodeField` representation
 - avoid leaving family meaning as comments and gut feel only
+- the first useful named grouping probably looks like:
+  - payload-empty primitive
+  - payload-bearing primitive
+  - colon/thread
+  - defining-word-produced
 
 ### B. Where Should Payload Interpretation Live?
 
@@ -202,6 +318,8 @@ Current recommendation:
 - family-specific helpers should own payload interpretation
 - the package should make it explicit which helper interprets the payload for a given
   family
+- it should be valid for a family helper to say:
+  - this family has no payload after `DFA`
 
 ### C. How Should Construction Work?
 
@@ -212,6 +330,7 @@ Current recommendation:
 - common dictionary creation mechanics remain shared
 - family-specific construction should be layered on top of that shared machinery
 - the family abstraction should say what gets written after `DFA`
+- many primitive families should not need to write anything after `DFA`
 
 ### D. How Should Observability Work?
 
@@ -246,6 +365,8 @@ The strongest current recommendation is:
 - make word families explicit in package design
 - keep construction and payload interpretation attached to families, not scattered
 - do not force execution-form decisions into this workstream
+- let the default case be a payload-empty primitive family
+- treat `DOCOL` and `LIT`-style behaviors as the first clear payload-bearing cases
 
 That gives us a cleaner bridge from:
 
@@ -278,6 +399,13 @@ If we continue immediately from this document, the next most useful work is:
 2. map current known `instruction` meanings onto those descriptors
 3. add readable runtime/IR helpers for family-specific payload interpretation
 4. then write `docs/execution-invariants.md`
+
+The current notes suggest the first concrete descriptor set should probably be:
+
+1. payload-empty primitive family
+2. payload-bearing primitive family
+3. `DOCOL` / colon-thread family
+4. defining-word-produced family
 
 That should give `fythvm` a clean bridge from:
 
