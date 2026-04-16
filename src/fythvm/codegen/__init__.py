@@ -5,6 +5,7 @@ This package is the promotion boundary for ideas that have graduated from
 in-repo consumers should use it, but its API is intentionally still allowed to move.
 """
 
+from .bytes import compare_aligned_i32_regions
 from .exits import SharedExit
 from .interpreter import FetchedCell, emit_tagged_cell_dispatch
 from .joins import Join
@@ -29,6 +30,7 @@ __all__ = [
     "BoundStructView",
     "BitField",
     "CompiledIRModule",
+    "compare_aligned_i32_regions",
     "ContextStructStackAccess",
     "FetchedCell",
     "I16",

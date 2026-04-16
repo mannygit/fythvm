@@ -16,6 +16,7 @@ from .schema import (
     align_up,
 )
 from .runtime import DictionaryMemory, DictionaryRuntime, LookupTrace, WordRecord, aligned_name_region_size
+from .ir import DictionaryIR, aligned_name_region_size_ir
 
 __all__ = [
     "CELL_SIZE",
@@ -26,6 +27,7 @@ __all__ = [
     "NAME_LENGTH_MASK",
     "NULL_INDEX",
     "CodeField",
+    "DictionaryIR",
     "DictionaryMemory",
     "DictionaryRuntime",
     "InterpreterRuntimeData",
@@ -35,5 +37,6 @@ __all__ = [
     "WordPrefix",
     "WordRecord",
     "aligned_name_region_size",
+    "aligned_name_region_size_ir",
     "align_up",
 ]

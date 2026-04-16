@@ -17,6 +17,7 @@ from fythvm.codegen import (
     StructHandle,
     StructViewStackAccess,
     SwitchDispatcher,
+    compare_aligned_i32_regions,
     compile_ir_module,
     configure_llvm,
 )
@@ -245,6 +246,35 @@ def test_generated_dictionary_code_field_view_exposes_logical_bitfields() -> Non
     read_fields_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("read_code_fields"))
     assert set_fields_fn() == (42 | (1 << 7) | (7 << 8) | (1 << 13))
     assert read_fields_fn() == 42 + 1 + 7 + 1 + 0
+
+
+def test_compare_aligned_i32_regions_compares_padded_name_bytes_word_at_a_time() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="aligned_i32_region_compare")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(module, ir.FunctionType(I1, [ir.IntType(8).as_pointer(), ir.IntType(8).as_pointer(), I32]), name="eq")
+
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    result = compare_aligned_i32_regions(builder, fn.args[0], fn.args[1], fn.args[2], name="name_eq")
+    builder.ret(result)
+
+    compiled = compile_ir_module(module)
+    eq = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_uint8), ctypes.c_int32)(
+        compiled.function_address("eq")
+    )
+
+    same_a = (ctypes.c_uint8 * 8)(*b"dup\x00swap")
+    same_b = (ctypes.c_uint8 * 8)(*b"dup\x00swap")
+    diff_second_word = (ctypes.c_uint8 * 8)(*b"dup\x00swop")
+    diff_first_word = (ctypes.c_uint8 * 8)(*b"dropswap")
+    empty_a = (ctypes.c_uint8 * 4)(0, 0, 0, 0)
+    empty_b = (ctypes.c_uint8 * 4)(0, 0, 0, 0)
+
+    assert eq(same_a, same_b, 8) is True
+    assert eq(same_a, diff_second_word, 8) is False
+    assert eq(same_a, diff_first_word, 4) is False
+    assert eq(empty_a, empty_b, 0) is True
 
 
 def test_param_loop_carries_one_value_through_loop_header() -> None:
