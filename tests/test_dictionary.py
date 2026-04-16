@@ -7,12 +7,11 @@ import ctypes
 from fythvm import dictionary
 
 
-def test_name_header_round_trip_and_alignment() -> None:
-    header = dictionary.NameHeader.pack(4, hidden=True, immediate=False)
-    assert header == 0x44
-    assert dictionary.NameHeader.unpack(header) == (4, True, False)
-    assert dictionary.NameHeader.encode(b"drop", hidden=True) == b"\x44drop"
-    assert dictionary.NameHeader.aligned_size(4) == 8
+def test_aligned_name_region_size() -> None:
+    assert dictionary.aligned_name_region_size(0) == 0
+    assert dictionary.aligned_name_region_size(3) == 4
+    assert dictionary.aligned_name_region_size(4) == 4
+    assert dictionary.aligned_name_region_size(5) == 8
 
 
 def test_dictionary_runtime_creates_words_and_traverses_newest_first() -> None:
@@ -72,7 +71,19 @@ def test_dictionary_runtime_uses_fixed_ctypes_prefix_layout() -> None:
     assert prefix.code.name_length == 4
     assert prefix.code.compiling == 1
     assert word.name_start_byte_offset == 0
-    assert runtime.memory.read_bytes(0, 5) == b"\x04emit"
+    assert runtime.memory.read_bytes(0, 4) == b"emit"
+
+
+def test_dictionary_runtime_name_region_has_no_physical_header_byte() -> None:
+    runtime = dictionary.DictionaryRuntime()
+    word = runtime.create_word("dup", instruction=42, hidden=True, immediate=True, compiling=True)
+
+    assert word.name_bytes == b"dup"
+    assert word.aligned_name_bytes == 4
+    assert runtime.memory.read_bytes(0, 4) == b"dup\x00"
+    assert word.code.hidden == 1
+    assert word.code.immediate == 1
+    assert word.code.name_length == 3
 
 
 def test_dictionary_runtime_raises_when_memory_is_exhausted() -> None:

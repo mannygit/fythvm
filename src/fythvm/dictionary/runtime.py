@@ -10,9 +10,6 @@ from .schema import (
     CELL_SIZE,
     DEFAULT_MEMORY_CELLS,
     DEFAULT_STACK_CELLS,
-    HIDDEN_MASK,
-    IMMEDIATE_MASK,
-    NAME_LENGTH_MASK,
     NULL_INDEX,
     CodeField,
     DictionaryMemory as DictionaryMemorySchema,
@@ -20,36 +17,8 @@ from .schema import (
     align_up,
 )
 
-
-class NameHeader:
-    """Packed one-byte word-name header from the old `words.py` model."""
-
-    @staticmethod
-    def pack(length: int, *, hidden: bool = False, immediate: bool = False) -> int:
-        if not 0 <= length <= NAME_LENGTH_MASK:
-            raise ValueError(f"name length must fit in 5 bits, got {length}")
-        header = length & NAME_LENGTH_MASK
-        if hidden:
-            header |= HIDDEN_MASK
-        if immediate:
-            header |= IMMEDIATE_MASK
-        return header
-
-    @staticmethod
-    def unpack(header: int) -> tuple[int, bool, bool]:
-        return (
-            header & NAME_LENGTH_MASK,
-            bool(header & HIDDEN_MASK),
-            bool(header & IMMEDIATE_MASK),
-        )
-
-    @staticmethod
-    def encode(name: bytes, *, hidden: bool = False, immediate: bool = False) -> bytes:
-        return bytes([NameHeader.pack(len(name), hidden=hidden, immediate=immediate)]) + name
-
-    @staticmethod
-    def aligned_size(length: int) -> int:
-        return align_up(1 + length, CELL_SIZE)
+def aligned_name_region_size(length: int) -> int:
+    return align_up(length, CELL_SIZE)
 
 
 class DictionaryMemory(DictionaryMemorySchema):
@@ -142,23 +111,15 @@ class WordRecord:
 
     @property
     def aligned_name_bytes(self) -> int:
-        return NameHeader.aligned_size(self.name_length)
+        return aligned_name_region_size(self.name_length)
 
     @property
     def name_start_byte_offset(self) -> int:
         return self.index * CELL_SIZE - self.aligned_name_bytes
 
     @property
-    def name_header(self) -> int:
-        return self.memory.read_bytes(self.name_start_byte_offset, 1)[0]
-
-    @property
     def name_bytes(self) -> bytes:
-        header_length, hidden, immediate = NameHeader.unpack(self.name_header)
-        assert header_length == self.name_length
-        assert hidden == self.hidden
-        assert immediate == self.immediate
-        return self.memory.read_bytes(self.name_start_byte_offset + 1, self.name_length)
+        return self.memory.read_bytes(self.name_start_byte_offset, self.name_length)
 
     @property
     def hidden(self) -> bool:
@@ -206,14 +167,13 @@ class DictionaryRuntime:
         data: Sequence[int] = (),
     ) -> WordRecord:
         name_bytes = name.encode("ascii") if isinstance(name, str) else name
-        encoded_name = NameHeader.encode(name_bytes, hidden=hidden, immediate=immediate)
-        padded_name_size = NameHeader.aligned_size(len(name_bytes))
+        padded_name_size = aligned_name_region_size(len(name_bytes))
         blob_offset = self.memory.here * CELL_SIZE
         required_cells = padded_name_size // CELL_SIZE + 2 + len(data)
         end_cell = self.memory.here + required_cells
         if end_cell > self.memory.capacity_cells:
             raise MemoryError("dictionary memory exhausted")
-        self.memory.write_bytes(blob_offset, encoded_name.ljust(padded_name_size, b"\x00"))
+        self.memory.write_bytes(blob_offset, name_bytes.ljust(padded_name_size, b"\x00"))
 
         word_index = self.memory.here + padded_name_size // CELL_SIZE
         prefix = WordPrefix.from_address(self.memory.get_cell_addr(word_index))

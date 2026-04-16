@@ -15,7 +15,7 @@ from .schema import (
     WordPrefix,
     align_up,
 )
-from .runtime import DictionaryMemory, DictionaryRuntime, LookupTrace, NameHeader, WordRecord
+from .runtime import DictionaryMemory, DictionaryRuntime, LookupTrace, WordRecord, aligned_name_region_size
 
 __all__ = [
     "CELL_SIZE",
@@ -30,10 +30,10 @@ __all__ = [
     "DictionaryRuntime",
     "InterpreterRuntimeData",
     "LookupTrace",
-    "NameHeader",
     "Registers",
     "StackBounds",
     "WordPrefix",
     "WordRecord",
+    "aligned_name_region_size",
     "align_up",
 ]

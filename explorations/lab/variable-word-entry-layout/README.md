@@ -8,7 +8,7 @@ fixed word prefix and derived CFA/DFA offsets?
 ## Setup
 
 This lab uses the package-level pure Python + `ctypes` dictionary runtime in
-[dictionary.py](/Users/manny/fythvm/src/fythvm/dictionary.py:1), but it reconstructs
+[runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:1), but it reconstructs
 the offsets twice:
 
 - a raw view that walks the byte/cell math explicitly

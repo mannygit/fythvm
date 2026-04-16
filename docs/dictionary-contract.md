@@ -16,6 +16,164 @@ The name `Dictionary Contract` is intentional.
 This document is the place to decide what a dictionary entry *means* in `fythvm`, not
 just how it is currently stored.
 
+## Design Context
+
+One important piece of project history needs to be stated explicitly, because it
+explains some of the noise in both `~/fyth` and the newer `fythvm` code.
+
+The system did **not** start from a top-down Forth dictionary design.
+
+It started from a much simpler phase:
+
+- implement words
+- make them operate on a stack
+- do arithmetic
+- keep moving
+
+There was no full dictionary plan at the beginning. The early direction was closer to:
+
+- "get useful stack words working"
+- "get execution-shaped pieces moving"
+- "code on feel"
+
+Only later did the stricter Forth problem become unavoidable:
+
+- some words can be represented as simple low-memory execution tokens looked up through
+  a small dispatch table
+- but that only covers a narrow case
+- a real general Forth needs words to be more than opcodes
+
+The general case requires:
+
+- word metadata
+- linked dictionary structure
+- names and visibility rules
+- fixed prefix plus payload
+- sequences of words / threads
+- code/data boundary helpers
+- later, defining-word-like construction and execution interpretation
+
+So the repo contains some historical layering:
+
+- an early "small xt dispatch" intuition
+- then a later realization that the general case is dictionary-structured and
+  metadata-driven
+
+That means some older design traces may look inconsistent for a reason:
+
+- they may reflect a transition from "stack word execution" thinking
+- toward "full word record with metadata and payload" thinking
+
+This document should therefore prefer the general dictionary model when the two are in
+tension.
+
+The simpler low-memory/lookup-table xt model can still be useful:
+
+- as an optimization
+- as a subset
+- as a bootstrap layer
+
+But it should not be mistaken for the full dictionary contract.
+
+## Native Words vs Later-Defined Words
+
+One of the main remaining "gut feel" questions is whether built-in/native words and
+later-defined words should be treated as fundamentally different at the dictionary
+level.
+
+The answer this document recommends is:
+
+- **different execution families**
+- **same dictionary contract**
+
+That is, the distinction is real, but it belongs in word-family interpretation, not in
+the basic meaning of what a dictionary entry is.
+
+### Why The Feeling Exists
+
+The feeling comes from a real historical difference:
+
+- early built-ins can look like simple execution tokens, opcodes, or low-memory table
+  entries
+- later-defined words look like "real Forth words" with names, metadata, and threads
+
+That can make it seem like these are two different dictionary species.
+
+But both classic references argue otherwise:
+
+- JonesForth stores built-ins and colon definitions in one linked dictionary, even
+  though their codeword targets differ
+- Moving Forth explicitly explains that different word classes share the same broader
+  code-field / parameter-field idea, while differing in how the code field is
+  interpreted
+
+So the stronger model is:
+
+- a dictionary entry always names a word-family instance
+- what varies is the family-specific interpretation of the payload
+
+### What Should Be The Same
+
+Built-in/native words and later-defined words should both participate in the same
+dictionary-level structure:
+
+- link ordering
+- visibility rules
+- name encoding
+- fixed prefix anchor
+- code/data boundary helpers
+- lookup and shadowing semantics
+
+That means:
+
+- redefining a native word should shadow it the same way as redefining any later word
+- hidden/native and hidden/later-defined words should behave the same in lookup
+- iteration over the dictionary should not need separate mechanisms for "primitive"
+  versus "defined" words
+
+### What Can Differ
+
+What can differ is the word-family interpretation:
+
+- native word:
+  - payload may effectively be an instruction id, builtin handler id, or native entry
+    reference
+- colon-like defined word:
+  - payload may be a thread / sequence / word stream
+- defining-word-produced family:
+  - payload may be family-specific data interpreted by shared behavior
+
+So this distinction belongs under:
+
+- code-field meaning
+- word family
+- execution interpretation
+
+not under:
+
+- basic dictionary shape
+
+### Contract Decision
+
+For purposes of `docs/dictionary-contract.md`, the working decision should be:
+
+- **the dictionary does not distinguish "builtin/native" versus "later-defined" as two
+  different structural kinds of entry**
+- it distinguishes only:
+  - common dictionary structure
+  - family-specific payload interpretation
+
+### What This Means For Open Questions
+
+This reduces a few ambiguities:
+
+- `instruction` or whatever replaces it should probably be understood as
+  family/behavior-selection metadata, not proof that "this is a totally different kind
+  of word"
+- future thread-bearing words should still fit under the same dictionary contract
+- simple builtin dispatch tables can exist, but they should be treated as one execution
+  family inside the dictionary model, not as the whole model
+
 ## Scope
 
 This document focuses on these Step 1 decisions:
@@ -64,8 +222,7 @@ Current package code:
 
 Current dictionary entry shape in runtime terms:
 
-1. A word name is encoded as:
-   - one packed header byte
+1. A word name is stored as:
    - raw name bytes
    - zero padding to cell alignment
 2. The fixed word prefix starts immediately after that aligned name blob.
@@ -75,20 +232,92 @@ Current dictionary entry shape in runtime terms:
    - zero-length `data_start`
 4. The data area begins immediately after the fixed prefix.
 
+## Implementation Status
+
+Current `fythvm` runtime is aligned with the desired contract.
+
+Desired target contract:
+
+```text
+[ name bytes + padding ][ previous link ][ CodeField ][ data... ]
+```
+
+with `CodeField` as the canonical storage for:
+
+- primitive instruction / dispatch selector
+- hidden
+- immediate
+- compiling
+- name length
+- reserved flags
+
+and **no separate physical `NameHeader` byte**.
+
+Address interpretation under this contract:
+
+- `xt` is the address of the `CodeField`
+- `CFA` is the same thing as `xt`
+- `DFA` is the address immediately after the fixed prefix
+
+So visually:
+
+```text
+[ name bytes + padding ][ previous link ][ CodeField ][ data... ]
+                                ^              ^           ^
+                              link           xt/CFA       DFA
+```
+
+So, to be explicit:
+
+- runtime storage is:
+  - raw name bytes
+  - zero padding
+  - `link`
+  - canonical `CodeField`
+  - data
+- `CodeField` is the only physical metadata cell
+- Python/runtime accessors read metadata from `CodeField`
+- byte-oriented helpers exist for name bytes and alignment, not for a physical header
+  byte
+
 Current code points:
 
-- `NameHeader.encode(...)`
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:47)
-- aligned name size:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:52)
+- aligned name size helper:
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:18)
 - word creation:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:196)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:145)
 - newest-first traversal:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:235)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:168)
 - hidden-word skipping:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:248)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:181)
 - CFA/DFA helpers:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:180)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:129)
+
+Concrete inspector:
+
+- [scripts/inspect_dictionary_word_layout.py](/Users/manny/fythvm/scripts/inspect_dictionary_word_layout.py:1)
+  - runnable dump of one sample word showing:
+    - name bytes region
+    - fixed prefix bytes
+    - `CodeField` cell bytes and bits
+    - the actual canonical storage layout
+
+## Reference Alignment
+
+The older `~/fyth` code and the classic Forth references align on the important shape:
+
+- name bytes before the fixed prefix
+- explicit link field
+- explicit code/data boundary helpers
+- minimal fixed prefix
+- metadata and execution-family selection carried by the fixed prefix rather than by a
+  separate external index
+
+Relevant files:
+
+- [~/fyth/src/fyth/words.py](/Users/manny/fyth/src/fyth/words.py:1)
+- [~/fyth/src/fyth/core/layout.py](/Users/manny/fyth/src/fyth/core/layout.py:1)
+- [~/fyth/src/fyth/tests/test_layout.py](/Users/manny/fyth/src/fyth/tests/test_layout.py:1)
 
 ## Proposed Contract
 
@@ -142,8 +371,15 @@ Recommended rule:
 
 - the fixed prefix should remain the canonical anchor for code/data boundary
   calculations
-- future additions to the prefix must be justified as stable word-family metadata, not
-  transient runtime state
+- the fixed prefix stays exactly:
+  - `previous link`
+  - `CodeField`
+- `CodeField` stays one 32-bit cell
+- the currently unused bits in `CodeField` remain unused unless there is a compelling
+  future reason to assign them meaning
+- there is no plan to extend the fixed prefix beyond `[link][CodeField]`
+- if future word families need more payload, that belongs after `DFA`, not in a larger
+  fixed prefix
 
 ### 4. Code/Data Boundary Helpers
 
@@ -159,6 +395,8 @@ Current helpers:
 
 Recommended rule:
 
+- `xt` and `CFA` mean the address of the `CodeField`
+- `DFA` means the address immediately after the fixed prefix
 - code/data boundary helpers are part of the public dictionary contract
 - callers should not be expected to recompute offsets ad hoc
 - code/data boundary derivation should remain explicit in both byte and cell terms when
@@ -166,33 +404,29 @@ Recommended rule:
 
 ### 5. Name Encoding
 
-The word name is a byte protocol, not a normal struct field.
+The word name is a variable-length byte region before the fixed prefix, not a normal
+struct field.
 
-Current encoding:
+Desired encoding:
 
-- first byte packs:
-  - `name_length`
-  - `hidden`
-  - `immediate`
-- then raw name bytes
+- raw name bytes
 - then zero padding to cell alignment
-
-([runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:20))
+- with length/visibility/behavior flags owned by `CodeField`
 
 Recommended rule:
 
-- name encoding remains a dedicated protocol layer
+- name bytes remain a dedicated variable-length protocol region
 - it should not be forced into the fixed prefix just for convenience
-- name semantics should remain recoverable from the prefix plus preceding byte blob
+- the prefix should carry the metadata needed to interpret that region
 
 ### 6. Alignment Rule
 
-The name blob is aligned to cell size before the fixed prefix starts.
+The name bytes region is aligned to cell size before the fixed prefix starts.
 
 Current helper:
 
-- `NameHeader.aligned_size(...)`
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:52)
+- `aligned_name_region_size(...)`
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:18)
 
 Recommended rule:
 
@@ -242,7 +476,7 @@ These can be treated as durable unless strong evidence appears otherwise:
 
 These need real choices before we should call the contract finished.
 
-### A. Exact `CodeField` Meaning
+### A. Exact `CodeField` Contents
 
 Current `CodeField` contains:
 
@@ -255,33 +489,55 @@ Current `CodeField` contains:
 
 Open questions:
 
-- is `instruction` the right long-term name?
-- should `name_length` stay duplicated in both name header and code field?
-- is `compiling` truly word metadata, or should it move elsewhere later?
 - what later execution metadata, if any, belongs here?
+
+Current recommendation:
+
+- `CodeField` should become the single canonical metadata cell
+- `name_length`, `hidden`, and `immediate` are canonical in `CodeField`
+- `compiling` belongs in `CodeField`
+- `instruction` belongs in `CodeField` and should be understood as:
+  - a primitive Forth-system instruction id
+  - used to index a jump table / dispatch table
+  - selecting the execution behavior for the word
+  - with colon-defined words using the primitive id for `DOCOL`
+- only metadata that is actually needed should live in `CodeField`
+- if the system only needs:
+  - `instruction`
+  - `hidden`
+  - `immediate`
+  - `compiling`
+  - `name_length`
+  then that is the settled target
 
 ### B. Cell vs Byte APIs
 
 Current runtime uses both:
 
-- byte-level name protocol
+- byte-level name region access
 - cell-level memory indexing
 
 Open questions:
 
 - which helpers should be public in byte terms?
 - which helpers should be public in cell terms?
-- do we want dual helper sets or one canonical internal form plus adapters?
 
-### C. Prefix Growth Policy
+Settled direction:
 
-Open question:
+- keep dual helper sets
+- byte APIs should own:
+  - name bytes
+  - aligned name region length
+- cell APIs should own:
+  - word indices
+  - link traversal
+  - CFA/DFA/data-cell indexing
+- suitable abstractions should exist for these fields and helpers so that:
+  - IR-generating code is easier to read
+  - Python/runtime inspection is easier to read
+  - both views stay consistent
 
-- what qualifies as fixed word-prefix metadata vs later derived/runtime state?
-
-Without a policy, the prefix can become a junk drawer.
-
-### D. Lookup Surface
+### C. Lookup Surface
 
 Current lookup is:
 
@@ -302,20 +558,16 @@ This is the checklist we should walk through next, in order.
 1. Confirm that newest-first link semantics are final.
 2. Confirm that hidden-word skipping is final.
 3. Confirm that the variable-length name blob stays before the fixed prefix.
-4. Decide whether `CodeField.name_length` duplication stays or goes.
-5. Decide whether `instruction` should be renamed before more code depends on it.
-6. Decide whether `compiling` belongs in `CodeField`.
-7. Decide which byte-oriented helpers are part of the contract.
-8. Decide which cell-oriented helpers are part of the contract.
-9. Write the fixed-prefix growth policy explicitly.
-10. Only after that, harden more package APIs around this contract.
+4. Lock down the byte-oriented helper surface.
+5. Lock down the cell-oriented helper surface.
+6. Only after that, harden more package APIs around this contract.
 
 ## Recommended Next Concrete Work
 
 If we continue immediately from this document, the next most useful work is:
 
-1. a focused cleanup of `CodeField` naming and field meaning
-2. explicit public helper naming for code/data boundary and name access
-3. documentation/tests that assert the contract directly
+1. add explicit field/helper abstractions for both IR/codegen and Python observability
+2. documentation/tests that assert the contract directly
+3. refine the lookup/traversal public surface if needed
 
 That would finish most of Step 1 without dragging execution decisions in too early.

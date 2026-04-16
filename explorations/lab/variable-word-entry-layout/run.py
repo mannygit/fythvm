@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fythvm.dictionary import CELL_SIZE, DictionaryRuntime, NameHeader, WordRecord
+from fythvm.dictionary import CELL_SIZE, DictionaryRuntime, WordRecord, aligned_name_region_size
 
 
 @dataclass(frozen=True)
@@ -24,11 +24,9 @@ class RawWordShape:
 
 def raw_describe_word(word: WordRecord) -> RawWordShape:
     memory = word.memory
-    header = memory.read_bytes(word.name_start_byte_offset, 1)[0]
-    length, hidden, immediate = NameHeader.unpack(header)
-    assert length == word.name_length
-    aligned_name_bytes = NameHeader.aligned_size(length)
-    name_bytes = memory.read_bytes(word.name_start_byte_offset + 1, length)
+    length = word.name_length
+    aligned_name_bytes = aligned_name_region_size(length)
+    name_bytes = memory.read_bytes(word.name_start_byte_offset, length)
     return RawWordShape(
         index=word.index,
         link=word.link,
@@ -37,8 +35,8 @@ def raw_describe_word(word: WordRecord) -> RawWordShape:
         cfa_index=word.index + 1,
         dfa_index=word.index + 2,
         instruction=word.instruction,
-        hidden=hidden,
-        immediate=immediate,
+        hidden=word.hidden,
+        immediate=word.immediate,
         compiling=word.compiling,
         name_bytes=name_bytes,
     )
@@ -76,7 +74,7 @@ def main() -> None:
 
     print("== Layout Rules ==")
     print(f"cell size = {CELL_SIZE} bytes")
-    print("name blob = one packed header byte + name bytes + zero padding to cell alignment")
+    print("name blob = raw name bytes + zero padding to cell alignment")
     print("fixed word prefix begins after the aligned name blob")
     print("latest stores the fixed-prefix cell index, not a payload byte offset")
     print()

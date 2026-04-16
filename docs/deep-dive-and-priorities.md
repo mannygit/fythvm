@@ -360,7 +360,7 @@ The repo already has a good dictionary runtime foundation:
 
 - [DictionaryRuntime](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:132)
 - [WordRecord](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:94)
-- [NameHeader](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:22)
+- [aligned_name_region_size](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:18)
 
 But the next step is not execution. The next step is making construction and lookup
 semantics cleaner and more composable.
