@@ -217,6 +217,8 @@ Current package code:
   - [src/fythvm/dictionary/schema.py](/Users/manny/fythvm/src/fythvm/dictionary/schema.py:1)
 - runtime:
   - [src/fythvm/dictionary/runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:1)
+- IR helpers:
+  - [src/fythvm/dictionary/ir.py](/Users/manny/fythvm/src/fythvm/dictionary/ir.py:1)
 - generated IR layout:
   - [src/fythvm/dictionary/layout.py](/Users/manny/fythvm/src/fythvm/dictionary/layout.py:1)
 
@@ -283,15 +285,19 @@ So, to be explicit:
 Current code points:
 
 - aligned name size helper:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:18)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:20)
 - word creation:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:145)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:159)
+- IR word creation:
+  - [ir.py](/Users/manny/fythvm/src/fythvm/dictionary/ir.py:219)
 - newest-first traversal:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:168)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:195)
 - hidden-word skipping:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:181)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:203)
+- IR hidden-word skipping and newest-first lookup:
+  - [ir.py](/Users/manny/fythvm/src/fythvm/dictionary/ir.py:145)
 - CFA/DFA helpers:
-  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:129)
+  - [runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:140)
 
 Concrete inspector:
 
@@ -327,14 +333,16 @@ This section is the current recommended contract for `fythvm`.
 
 `latest` is the head of the dictionary chain.
 
-Each word prefix stores a link to the previous visible history point in creation order.
-Traversal is newest-first by following `link`.
+Each word prefix stores a link to the previous word in creation order.
+Traversal is newest-first by following that full chain.
 
 This means:
 
 - redefining a word shadows older definitions naturally
 - lookup order is a property of the link chain, not of any auxiliary index
 - historical order is preserved in the chain itself
+- hidden words remain in the chain; visibility is applied by lookup, not by link
+  rewriting
 
 ### 2. Visibility Rule
 
@@ -388,8 +396,9 @@ The dictionary contract should expose explicit helpers equivalent in spirit to c
 
 Current helpers:
 
-- `cfa_index`
-- `dfa_index`
+- cell-index helpers:
+  - `cfa_index`
+  - `dfa_index`
 
 ([runtime.py](/Users/manny/fythvm/src/fythvm/dictionary/runtime.py:180))
 
@@ -397,6 +406,8 @@ Recommended rule:
 
 - `xt` and `CFA` mean the address of the `CodeField`
 - `DFA` means the address immediately after the fixed prefix
+- `cfa_index` and `dfa_index` are the cell-index view of those same boundaries in the
+  Python runtime
 - code/data boundary helpers are part of the public dictionary contract
 - callers should not be expected to recompute offsets ad hoc
 - code/data boundary derivation should remain explicit in both byte and cell terms when
@@ -487,28 +498,23 @@ Current `CodeField` contains:
 - `compiling`
 - `unused`
 
-Open questions:
+This is now mostly settled:
 
-- what later execution metadata, if any, belongs here?
-
-Current recommendation:
-
-- `CodeField` should become the single canonical metadata cell
-- `name_length`, `hidden`, and `immediate` are canonical in `CodeField`
-- `compiling` belongs in `CodeField`
-- `instruction` belongs in `CodeField` and should be understood as:
+- `CodeField` is the single canonical metadata cell
+- `instruction`, `hidden`, `name_length`, `immediate`, and `compiling` belong there
+- `instruction` is:
   - a primitive Forth-system instruction id
   - used to index a jump table / dispatch table
   - selecting the execution behavior for the word
   - with colon-defined words using the primitive id for `DOCOL`
 - only metadata that is actually needed should live in `CodeField`
-- if the system only needs:
-  - `instruction`
-  - `hidden`
-  - `immediate`
-  - `compiling`
-  - `name_length`
-  then that is the settled target
+- the currently unused bits remain unused until there is a compelling reason to assign
+  them meaning
+
+The only meaningful remaining question here is:
+
+- what later execution metadata, if any, would justify consuming some of the currently
+  unused bits?
 
 ### B. Cell vs Byte APIs
 
@@ -516,11 +522,6 @@ Current runtime uses both:
 
 - byte-level name region access
 - cell-level memory indexing
-
-Open questions:
-
-- which helpers should be public in byte terms?
-- which helpers should be public in cell terms?
 
 Settled direction:
 
