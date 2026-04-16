@@ -1,0 +1,7 @@
+slug = "python-shared-stack-kernels"
+title = "Python shared stack kernels"
+summary = "Show JonesForth-style primitive-empty words in pure Python with requested-operation grouping and shared implementation kernels."
+status = "stable"
+tags = ["forth", "python", "stack", "kernels", "exploration"]
+run = "uv run python explorations/lab/python-shared-stack-kernels/run.py"
+agent_authored = true

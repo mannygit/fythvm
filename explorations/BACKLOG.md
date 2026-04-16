@@ -88,6 +88,19 @@ close out. Keep the backlog small and explicit.
 
 ## Done
 
+- `python-shared-stack-kernels`
+  - Title: Python shared stack kernels
+  - Goal: Show the requested JonesForth-style primitive-empty words in a pure Python
+    lab that stays grouped by requested operation type while routing repeated behavior
+    through shared kernels.
+  - Why it matters: The repo now has a concrete synthesis of primitive stack shapes,
+    and this lab makes the reuse boundary visible without flattening the source into
+    one kernel-centric file.
+  - Takeaway: Keep the reader-facing source split aligned with the requested Forth
+    operation groups, but still lower repeated behavior through a smaller set of
+    shared kernels backed by explicit Forth-name metadata.
+  - Lab: `explorations/lab/python-shared-stack-kernels/`
+
 - `dictionary-construction-abstractions`
   - Title: Dictionary construction abstractions
   - Goal: Refine the pure Python + ctypes dictionary runtime into cleaner word
