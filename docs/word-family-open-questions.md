@@ -13,8 +13,8 @@ These points are no longer the real questions:
 
 - `handler_id` is the stored family selector
 - native and later-defined words share one dictionary contract
-- many primitive words likely have empty `DFA`
-- `DOCOL` is the clearest payload-bearing family example
+- many primitive words likely have no additional associated data
+- `DOCOL` is the clearest word-local `DFA` case
 - some primitive families can still be payload-bearing
   - `LIT`-style behavior
   - a primitive that invokes some non-primitive target
@@ -24,7 +24,8 @@ These points are no longer the real questions:
   - colon-thread
 
 So the current workstream is no longer trying to answer whether word families exist.
-It is trying to make them more useful and actionable in package code.
+It is trying to make them more useful and actionable in package code without blurring
+them together with neighboring concerns.
 
 One thing is now explicitly *not* open:
 
@@ -33,7 +34,7 @@ One thing is now explicitly *not* open:
 
 ## Current Open Questions
 
-### 1. How Should Payload Interpretation Be Attached?
+### 1. What Exactly Belongs To The Family Layer?
 
 The package now has:
 
@@ -41,23 +42,47 @@ The package now has:
 - a registry mapping handler ids to those descriptors
 - raw `handler_id` values still stored in `CodeField`
 
-So the remaining question is no longer the base package shape. It is what richer
-meaning should hang off that shape.
+So the first remaining question is no longer the base package shape. It is the
+boundary between:
 
-The important question is where the logic lives that says:
+- family semantics
+- operand-location semantics
+- compile-time behavior
 
-- this family has no payload after `DFA`
-- this family has a thread after `DFA`
-- this family has inline literal data after `DFA`
-- this family interprets `DFA` some other way
+`LIT` is the clearest sign this matters:
 
-Current direction:
+- it is runtime behavior selected by a handler
+- it consumes inline execution-stream data
+- that is not the same as word-local data after the `LIT` word's own `DFA`
 
-- family-specific helpers should own payload interpretation
+So the first open question is:
 
-What is still open is the exact API boundary.
+- what belongs to the family layer versus adjacent layers?
 
-## 2. How Should Family-Specific Construction Layer On Top Of Shared Dictionary Creation?
+## 2. How Should Operand Location Be Modeled?
+
+Once the family boundary is cleaner, the next question is whether operand location
+becomes:
+
+- a second explicit model axis
+- or something attached to families in a more constrained way
+
+The important distinctions are:
+
+- no additional associated data
+- word-local data after the word's own `DFA`
+- inline operands in the active execution stream
+
+## 3. Where Should Family-Owned Helper APIs Live?
+
+Only after the first two questions are clarified does the earlier "payload
+interpretation API" question become well-scoped.
+
+At that point the real question becomes:
+
+- how should family/operand helpers be exposed in Python and IR?
+
+## 4. How Should Family-Specific Construction Layer On Top Of Shared Dictionary Creation?
 
 We already have:
 
@@ -72,7 +97,9 @@ What is still open is how family-aware constructors should sit on top of that:
 - one registry-driven builder?
 - some smaller set of shared helper patterns?
 
-## 3. How Far Should The Broader Family Layer Be Made Explicit Now?
+This question should be answered only after the family/operand split is clearer.
+
+## 5. How Far Should The Broader Family Layer Be Made Explicit Now?
 
 The approved core set is settled, but the broader conceptual layer is still a timing
 question.
@@ -87,7 +114,7 @@ What is still open is:
 - whether to represent those explicitly in package code now
 - or first land the approved three-family core and return to the broader layer after that
 
-## 4. What Exact Handoff Should This Workstream Make To Execution Invariants?
+## 6. What Exact Handoff Should This Workstream Make To Execution Invariants?
 
 This workstream should not choose execution form.
 
@@ -108,7 +135,9 @@ So one open question is really about sequencing:
 
 The current Step 3 workstream is mainly about:
 
-- family-owned payload interpretation
+- defining the family boundary cleanly
+- deciding how operand location is modeled
+- then attaching family/operand helper APIs
 - family-aware constructors
 - how explicit the broader family layer should become right now
 - clean handoff to execution invariants
@@ -117,7 +146,9 @@ The current Step 3 workstream is mainly about:
 
 If reviewing this away from the codebase, the most useful order is:
 
-1. decide how payload interpretation is attached
-2. decide how family-aware construction works
-3. decide how much of the broader family layer to model now
-4. then write the execution-invariants document
+1. define the boundary between family semantics, operand location, and compile-time behavior
+2. decide how operand location is modeled
+3. decide how family/operand helper APIs should work
+4. decide how family-aware construction works
+5. decide how much of the broader family layer to model now
+6. then write the execution-invariants document

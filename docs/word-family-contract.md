@@ -10,8 +10,8 @@ is about what a dictionary entry *is a member of* semantically.
 In other words:
 
 - `docs/dictionary-contract.md` decides the common entry shape
-- `docs/word-family-contract.md` decides how different kinds of words share behavior
-  and differ in payload interpretation
+- `docs/word-family-contract.md` decides how different kinds of words share runtime
+  behavior without collapsing neighboring concerns into the same model
 
 ## Why This Is The Next Workstream
 
@@ -29,7 +29,7 @@ We already have:
 What is still underspecified is the next layer up:
 
 - how far the package should go beyond the initial family descriptors
-- how payload interpretation attaches to those descriptors
+- how family behavior relates to payload location and compile-time behavior
 - how native/builtin words, colon-defined words, and later defining-word-like words
   should be modeled without becoming ad hoc special cases
 
@@ -50,27 +50,35 @@ The dictionary contract already settled these points:
 So this document starts from a stronger base:
 
 - the dictionary does not need to be split into different structural entry kinds
-- the remaining question is how to represent shared behavior and payload semantics
+- the remaining question is how to represent shared runtime behavior and its relation
+  to adjacent semantics
   above that shared structure
 
 ## Working Definition
 
-A **word family** is the shared execution-and-payload interpretation attached to a
-dictionary entry.
+A **word family** is the shared runtime behavior selected by a dictionary entry's
+`CodeField.handler_id`.
 
 More concretely:
 
 - a dictionary entry always has the common structure from
   [docs/dictionary-contract.md](/Users/manny/fythvm/docs/dictionary-contract.md:1)
 - the `CodeField` selects a shared behavior
-- the data after `DFA` is interpreted according to that shared behavior
+- that shared behavior is not, by itself, the full explanation of:
+  - where associated data lives
+  - how compile-time behavior works
 
 So a word family answers questions like:
 
 - what does `handler_id` mean for this word?
-- what does the payload after `DFA` contain?
-- what helper should construct this kind of word?
-- what helper should execute or otherwise interpret this kind of word later?
+- what runtime behavior does this word share with other words?
+- what helper should eventually execute or otherwise interpret this kind of word later?
+
+It does **not** automatically answer:
+
+- whether relevant data lives after the word's own `DFA`
+- whether relevant data is an inline operand in the active execution stream
+- whether the word has immediate or compile-affecting behavior
 
 ## What Is Common Across Families
 
@@ -87,7 +95,7 @@ This means the family abstraction should not re-decide:
 - how names are stored
 - where the link lives
 - where `CodeField` lives
-- where the payload begins
+- where the word's own `DFA` begins
 
 Those are already settled by the dictionary contract.
 
@@ -96,9 +104,74 @@ Those are already settled by the dictionary contract.
 What can vary is:
 
 - which execution handler id is stored in `CodeField.handler_id`
-- what the payload after `DFA` contains
-- what construction helper writes that payload
-- what execution helper later interprets that payload
+- what shared runtime behavior that handler selects
+- what helper eventually executes or otherwise interprets that behavior
+
+What does **not** yet belong solely to the family layer is:
+
+- whether associated data is word-local after the word's own `DFA`
+- whether associated data is an inline operand in the active execution stream
+- whether the word has compile-time / immediate behavior
+
+Those are adjacent axes that still need to be modeled cleanly.
+
+## Three Separate Axes
+
+The current underspecification is that three different concerns are easy to blur if we
+only say "family" and "payload."
+
+### 1. Runtime Family
+
+This is the family layer proper:
+
+- what shared runtime behavior does `handler_id` select?
+- examples:
+  - payload-empty primitive behavior
+  - payload-bearing primitive behavior
+  - `DOCOL` / colon-thread behavior
+
+### 2. Data Location And Interpretation
+
+This is separate from family and still needs clearer modeling:
+
+- no extra associated data
+- word-local data after the word's own `DFA`
+- inline operands in the active execution stream
+
+`DOCOL` is the clearest word-local case:
+
+- the handler selects `DOCOL`-style behavior
+- the word's own `DFA` begins the thread for that word
+
+`LIT` is the clearest inline-operand case:
+
+- the handler selects `LIT` behavior
+- the literal is not stored in the `LIT` word's own dictionary entry
+- the literal is the next inline cell in the active execution stream
+
+So `LIT` is exactly why "payload after `DFA`" is too blunt as a general explanation.
+
+### 3. Compile-Time Behavior
+
+This is also separate from family:
+
+- immediate behavior
+- compile-affecting behavior
+- dictionary/compiler-state behavior
+
+Examples:
+
+- `IMMEDIATE`
+- `[`
+- `]`
+- `CREATE`
+
+JonesForth strongly supports keeping this separate:
+
+- these are still ordinary words
+- they do not require a different dictionary entry shape
+- they should not automatically be treated as a separate runtime family just because
+  they affect compilation
 
 This is the actual family boundary.
 
@@ -125,7 +198,7 @@ They are organizational metadata for concrete instructions:
 
 But they do not answer the family questions:
 
-- does this word have family payload after `DFA`?
+- does this word share a runtime handler family?
 - is this a primitive-empty, primitive-payload, or colon-thread word?
 
 So the rule is:
@@ -146,7 +219,8 @@ So the system already has one important semantic decision:
 - `handler_id` is a **shared behavior selector**
 
 That is now explicit in package design at the descriptor/registry level. What remains is
-to decide how much more family-specific behavior should be attached there.
+to decide how much more meaning should be attached there versus modeled on neighboring
+axes.
 
 ## Concrete `~/fyth` Direction
 
@@ -157,20 +231,20 @@ The important remembered direction is:
 
 - primitive Forth words were represented by integers
 - those integers were indexes into a jump table
-- most primitive words had no meaningful payload after `DFA`
-- some special behaviors did use payload after `DFA`
+- most primitive words had no meaningful associated data beyond the behavior selector
+- some special behaviors did use additional data, but not always in the same place
 
 The most important special cases were:
 
 - `DOCOL`
   - the handler id selected colon-definition behavior
-  - the payload after `DFA` was the thread / sequence to execute
+  - the word's own `DFA` began the thread / sequence to execute
 - `LIT`-style behavior
   - the handler id selected literal-handling behavior
-  - the payload after `DFA` carried the inline literal data
+  - the inline execution stream carried the literal data
 - a specific primitive for invoking non-primitives
   - the primitive selected "call this other thing" behavior
-  - the payload after `DFA` was the thing to invoke
+  - the associated operand/data location was still a separate question
 
 So the practical model was not:
 
@@ -179,8 +253,9 @@ So the practical model was not:
 It was closer to:
 
 - most primitive/native words are just behavior selectors
-- only some families need payload after `DFA`
-- colon/threaded behavior and literal-bearing behavior are the canonical examples
+- some behaviors use word-local data
+- some behaviors use inline execution-stream operands
+- colon/threaded behavior and literal-bearing behavior are the canonical contrasting examples
 
 That is useful because it makes the family model less abstract. It suggests a very
 reasonable first package-level split:
@@ -192,10 +267,12 @@ reasonable first package-level split:
 It also sharpens one important design constraint:
 
 - the word-family abstraction should not assume that every family has meaningful
-  payload after `DFA`
+  word-local payload after `DFA`
 - it should allow the common case to be:
   - selector only
   - no payload interpretation needed
+- and it should leave room for operand-location rules that are not the same as
+  word-local `DFA` interpretation
 
 ## Execution-Shape Experiments Already Suggested By `~/fyth`
 
@@ -228,8 +305,9 @@ This is a different execution form, but it uses the same family selector in
 These two directions differ in execution form, but they agree on the family contract:
 
 - `handler_id` selects shared behavior
-- some behaviors need no payload
-- some behaviors interpret data after `DFA`
+- some behaviors need no additional data
+- some behaviors use word-local data
+- some behaviors consume inline operands in the active stream
 
 That is exactly why this workstream should stop at the family boundary and not choose
 the execution mechanism yet.
@@ -245,6 +323,8 @@ The approved initial family set is:
 3. **colon-thread**
 
 These are the first families the package should reason about explicitly.
+They should be understood as a **behavior-level split**, not a complete explanation of
+operand location or compile-time semantics.
 
 ### 1. Payload-Empty Primitive
 
@@ -272,7 +352,14 @@ This is the default family in the model.
 Meaning:
 
 - `handler_id` still selects a primitive/shared behavior
-- but that behavior interprets data after `DFA`
+- but that behavior is associated with additional data or operands beyond the selector
+
+Status:
+
+- this remains a useful provisional bucket
+- but it is not yet precise enough to distinguish:
+  - word-local data after the word's own `DFA`
+  - inline operands in the active execution stream
 
 Examples:
 
@@ -287,7 +374,8 @@ This matters because it prevents the model from collapsing into a false dichotom
 - non-primitives have payload
 
 The older `~/fyth` direction and the JonesForth/Moving references all support this
-family as real and important.
+behavior-level bucket as real and important, even though it still needs a second axis
+for operand location.
 
 ### 3. Colon-Thread
 
@@ -297,7 +385,7 @@ Meaning:
 
 Payload:
 
-- a sequence / thread of word references and inline operands after `DFA`
+- the word's own `DFA` begins a sequence / thread of word references and inline operands
 
 This is the first family that turns the dictionary from a symbol table into a proper
 threaded language substrate.
@@ -321,7 +409,9 @@ Moving Forth examples:
 - `LIT`
 
 These are better thought of as a broader conceptual family layer that may emerge once
-the first three core families are explicit in package code.
+the first three core families are explicit in package code. They are useful here as
+reference pressure, not as proof that the current package model should collapse all of
+their distinctions immediately.
 
 #### Defining-Word-Produced Families
 
@@ -347,7 +437,20 @@ does not need to be the first package-level implementation step.
 
 These are the concrete questions this workstream needs to settle.
 
-### A. How Should Family Identity Be Represented In Package Code?
+### A. What Exactly Belongs To The Family Layer?
+
+This is now the first unresolved question.
+
+The docs and package code already have a useful family representation, but `LIT`
+showed that we still need to separate:
+
+- runtime family semantics
+- operand/data-location semantics
+- compile-time behavior
+
+What remains open is the exact boundary between those layers.
+
+### B. How Should Family Identity Be Represented In Package Code?
 
 Options include:
 
@@ -364,7 +467,21 @@ Current status:
 What remains open is how much richer that representation should become before the
 instruction set is nailed down.
 
-### B. Where Should Payload Interpretation Live?
+### C. How Should Operand Location Be Modeled?
+
+The current family descriptors are still useful, but they do not yet explain whether
+associated data is:
+
+- absent
+- word-local after the word's own `DFA`
+- inline in the active execution stream
+
+What is still open is whether this becomes:
+
+- a second explicit model axis
+- or something attached to families in a narrower, more constrained way
+
+### D. Where Should Family-Owned Helper APIs Live?
 
 It should not live:
 
@@ -374,13 +491,14 @@ It should not live:
 
 Current recommendation:
 
-- family-specific helpers should own payload interpretation
-- the package should make it explicit which helper interprets the payload for a given
-  family
-- it should be valid for a family helper to say:
-  - this family has no payload after `DFA`
+- family-specific helpers should own runtime-family interpretation
+- operand-location rules should be explicit rather than implied
+- it should be valid for a helper to say:
+  - this family has no additional associated data
+  - this family uses word-local `DFA` data
+  - this family consumes inline execution-stream operands
 
-### C. How Should Construction Work?
+### E. How Should Construction Work?
 
 The runtime and IR layers should not have to know every family's details inline.
 
@@ -388,10 +506,11 @@ Current recommendation:
 
 - common dictionary creation mechanics remain shared
 - family-specific construction should be layered on top of that shared machinery
-- the family abstraction should say what gets written after `DFA`
-- many primitive families should not need to write anything after `DFA`
+- construction should not assume every interesting case writes data after the word's
+  own `DFA`
+- many primitive families should not need to write anything after the word's own `DFA`
 
-### D. How Should Observability Work?
+### F. How Should Observability Work?
 
 The repo has consistently favored:
 
@@ -401,7 +520,7 @@ The repo has consistently favored:
 Current recommendation:
 
 - each family should have readable runtime/IR helper surfaces
-- payload interpretation should be inspectable in both Python and IR terms
+- operand-location rules should be inspectable in both Python and IR terms
 - family behavior should not become opaque just because execution is deferred
 
 ## What This Document Does Not Decide
@@ -422,7 +541,9 @@ The strongest current recommendation is:
 
 - treat `handler_id` as the stored selector for a word family
 - make word families explicit in package design
-- keep construction and payload interpretation attached to families, not scattered
+- keep runtime family semantics explicit in package design
+- do not force operand-location semantics or compile-time behavior into the family
+  layer prematurely
 - do not force execution-form decisions into this workstream
 - let the default case be a payload-empty primitive family
 - treat payload-bearing primitives and `DOCOL` as the first concrete special cases
@@ -447,20 +568,28 @@ This is the order this workstream should walk through.
 
 1. Confirm that `handler_id` is the stored family selector.
 2. Record the approved first family set in the package/docs.
-3. Decide how family-specific payload interpretation is attached.
-4. Decide how family-specific construction helpers should layer on top of the shared
-   dictionary machinery.
-5. Only after that, write the execution-invariants document that any future engine
+3. Define the boundary between:
+   - family semantics
+   - operand-location semantics
+   - compile-time behavior
+4. Decide whether operand location becomes:
+   - a second explicit model axis
+   - or something attached to families in a narrower way
+5. Only after that, define family-owned helper APIs and family-aware construction
+   helpers.
+6. Only after that, write the execution-invariants document that any future engine
    must satisfy.
 
 ## Recommended Next Concrete Work
 
 If we continue immediately from this document, the next most useful work is:
 
-1. define the first package-level family descriptors
-2. map current known `handler_id` meanings onto those descriptors
-3. add readable runtime/IR helpers for family-specific payload interpretation
-4. then write `docs/execution-invariants.md`
+1. keep the current family descriptors, but make their current limits explicit
+2. define the boundary between family semantics, operand location, and compile-time
+   behavior
+3. decide how operand location should be modeled
+4. then add readable runtime/IR helpers for the resulting family/operand model
+5. then write `docs/execution-invariants.md`
 
 The current notes suggest the first concrete descriptor set should probably be:
 
