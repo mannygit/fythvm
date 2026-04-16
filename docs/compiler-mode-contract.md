@@ -15,6 +15,16 @@ that those two docs intentionally do **not** settle:
 This is the right place to record uncertainty around those ideas instead of forcing
 them into the family model.
 
+For the neighboring execution-state artifact that this layer will eventually feed, see:
+
+- [docs/execution-invariants.md](/Users/manny/fythvm/docs/execution-invariants.md:1)
+
+One important bridge to keep explicit:
+
+- compiler/meta words consume input/parse state
+- runtime inline-operand words consume thread state
+- those are different data sources and should not be conflated
+
 ## Why This Doc Exists
 
 The current family work exposed a real gap.

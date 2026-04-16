@@ -596,13 +596,15 @@ Why:
 
 Current status in `fythvm`:
 
-- still needed
-- pieces of the answer exist across the dictionary contract and the reference reports
-- but there is not yet one focused execution-invariants document
+- now started
+- an initial execution-state / invariants artifact exists
+- it still needs deeper follow-on work around `EXECUTE`, `ip`, parse state, and fault
+  modeling
 
 Neighboring workstream artifact:
 
 - [docs/compiler-mode-contract.md](/Users/manny/fythvm/docs/compiler-mode-contract.md:1)
+- [docs/execution-invariants.md](/Users/manny/fythvm/docs/execution-invariants.md:1)
 
 ### Step 5: Only then choose the first real execution shape
 

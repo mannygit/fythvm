@@ -29,9 +29,17 @@ We already have:
 What is still underspecified is the next layer up:
 
 - how far the package should go beyond the initial family descriptors
-- how family behavior relates to payload location and compile-time behavior
+- how family behavior relates to associated-data source and compile-time behavior
 - how native/builtin words, colon-defined words, and later defining-word-like words
   should be modeled without becoming ad hoc special cases
+
+The current working direction for that layer is now sharper:
+
+- runtime execution should be understood as a uniform handler surface over one machine
+  state
+- runtime families remain useful, but as metadata and semantic grouping around that
+  surface
+- family categories should not be treated as executor call-shape categories
 
 This is exactly where JonesForth's concrete codeword behavior and Moving Forth's
 code-field / parameter-field theory meet most productively.
@@ -102,6 +110,34 @@ to bootstrap:
 
 This strongly suggests that runtime family should stay narrow and should not try to
 absorb compile-time behavior.
+
+## Families Do Not Define Handler ABI
+
+The current recommended direction is:
+
+- runtime handlers should share one uniform logical signature over machine state
+- families do not justify different primitive/runtime signatures
+- execution design should not start from family-specific ABI assumptions
+
+So the family layer is useful for:
+
+- shared runtime semantics
+- associated-data-source expectations
+- construction and inspection helpers
+- registries, debugging, and documentation
+
+It is **not** the reason to vary:
+
+- handler ABI
+- executor entry shape
+- dispatch calling convention
+
+This matches the direction already visible in `~/fyth`:
+
+- one uniform builtin/handler shape
+- dispatch strategy varied independently
+- CFG rewriting, `musttail`, and loop dispatch were continuation mechanics, not family
+  ABI definitions
 
 ## What Is Common Across Families
 
@@ -175,6 +211,12 @@ This is separate from family and still needs clearer modeling:
 - word-local data after the word's own `DFA`
 - inline operands in the active thread
 
+The stronger execution-oriented phrasing is:
+
+- `NONE`
+- `WORD_LOCAL_DFA`
+- `INLINE_THREAD`
+
 `DOCOL` is the clearest word-local case:
 
 - the handler selects `DOCOL`-style behavior
@@ -187,6 +229,11 @@ This is separate from family and still needs clearer modeling:
 - the literal is the next inline cell in the active thread
 
 So `LIT` is exactly why "payload after `DFA`" is too blunt as a general explanation.
+
+This also lines up with the execution-state model:
+
+- `WORD_LOCAL_DFA` is recovered via `current_xt -> DFA`
+- `INLINE_THREAD` is recovered via `ip`
 
 ### 3. Compile-Time Behavior
 
@@ -271,6 +318,12 @@ The minimum JonesForth substrate makes one additional constraint especially clea
 So runtime families should not grow a compile-time taxonomy just because compile-
 sensitive words exist.
 
+The next strong refinement is:
+
+- family metadata should support a uniform handler ABI
+- associated-data source is the clearest next explicit axis
+- richer handler registries may matter more than deeper family taxonomies
+
 ## Concrete `~/fyth` Direction
 
 The older `~/fyth` work gives a sharper practical picture of what this family model was
@@ -303,7 +356,7 @@ It was closer to:
 
 - most primitive/native words are just behavior selectors
 - some behaviors use word-local data
-- some behaviors use inline execution-stream operands
+- some behaviors use inline thread operands
 - colon/threaded behavior and literal-bearing behavior are the canonical contrasting examples
 
 That is useful because it makes the family model less abstract. It suggests a very
@@ -372,8 +425,9 @@ The approved initial family set is:
 3. **colon-thread**
 
 These are the first families the package should reason about explicitly.
-They should be understood as a **behavior-level split**, not a complete explanation of
-operand location or compile-time semantics.
+They should be understood as a **behavior-level metadata split** over a uniform handler
+surface, not a complete explanation of operand location, compile-time semantics, or
+executor call shape.
 
 ### 1. Primitive-Empty
 
@@ -381,6 +435,7 @@ Meaning:
 
 - `handler_id` selects a primitive behavior implemented directly by the execution
   substrate
+- associated-data source is `NONE`
 
 Payload:
 
@@ -402,6 +457,7 @@ Meaning:
 
 - `handler_id` still selects a primitive/shared behavior
 - but that behavior consumes operand data inline from the current thread
+- associated-data source is `INLINE_THREAD`
 
 Status:
 
@@ -432,6 +488,7 @@ questions still remain for later families.
 Meaning:
 
 - `handler_id` selects `DOCOL`-style behavior
+- associated-data source is `WORD_LOCAL_DFA`
 
 Payload:
 
@@ -590,14 +647,19 @@ Those belong to the later execution-invariants and execution-shape workstreams.
 The strongest current recommendation is:
 
 - treat `handler_id` as the stored selector for a word family
-- make word families explicit in package design
-- keep runtime family semantics explicit in package design
+- make word families explicit in package design as supporting metadata
+- keep runtime family semantics explicit in package design without treating them as
+  handler ABI categories
 - do not force operand-location semantics or compile-time behavior into the family
   layer prematurely
 - do not force execution-form decisions into this workstream
 - let the default case be `primitive-empty`
 - treat `primitive-inline-operand` and `DOCOL` / `colon-thread` as the first concrete
   special cases
+- make associated-data source the clearest next explicit axis:
+  - `NONE`
+  - `WORD_LOCAL_DFA`
+  - `INLINE_THREAD`
 - treat the three approved core families as settled:
   - primitive-empty
   - primitive-inline-operand
@@ -621,11 +683,13 @@ This is the order this workstream should walk through.
 2. Record the approved first family set in the package/docs.
 3. Define the boundary between:
    - family semantics
-   - operand-location semantics
+   - associated-data-source semantics
    - compile-time behavior
-4. Decide whether operand location becomes:
-   - a second explicit model axis
-   - or something attached to families in a narrower way
+4. Decide how associated-data source should be modeled:
+   - `NONE`
+   - `WORD_LOCAL_DFA`
+   - `INLINE_THREAD`
+   - and how much of that lives on family descriptors versus richer handler metadata
 5. Only after that, define family-owned helper APIs and family-aware construction
    helpers.
 6. Only after that, write the execution-invariants document that any future engine
@@ -636,10 +700,10 @@ This is the order this workstream should walk through.
 If we continue immediately from this document, the next most useful work is:
 
 1. keep the current family descriptors, but make their current limits explicit
-2. define the boundary between family semantics, operand location, and compile-time
-   behavior
-3. decide how operand location should be modeled
-4. then add readable runtime/IR helpers for the resulting family/operand model
+2. define the boundary between family semantics, associated-data source, and
+   compile-time behavior
+3. decide how associated-data source should be modeled
+4. then add readable runtime/IR helpers for the resulting family/metadata model
 5. then write `docs/execution-invariants.md`
 
 The current notes suggest the first concrete descriptor set should probably be:
