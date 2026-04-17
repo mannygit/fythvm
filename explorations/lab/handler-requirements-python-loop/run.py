@@ -22,6 +22,7 @@ class Scenario:
     expected_final_ip: int
     expected_error_code: str | None
     expected_trace_words: tuple[str, ...]
+    custom_words: tuple["WordSpec", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -51,15 +52,32 @@ class ScenarioResult:
     trace: tuple[TraceRow, ...]
 
 
+@dataclass(frozen=True)
+class WordSpec:
+    xt: int
+    name: str
+    handler_id: int
+    thread: tuple[int, ...] | None = None
+
+
+@dataclass(frozen=True)
+class ReturnFrame:
+    thread_name: str
+    thread: tuple[int, ...]
+    return_ip: int
+
+
 @dataclass
 class LoopState:
     """Minimal execution state for the proof-of-concept loop."""
 
-    thread: tuple[int, ...]
+    current_thread: tuple[int, ...]
+    current_thread_name: str = "entry"
     stack_limit: int = 8
     ip: int = 0
     current_xt: int | None = None
     data_stack: list[int] = field(default_factory=list)
+    return_stack: list[ReturnFrame] = field(default_factory=list)
     halted: bool = False
 
 
@@ -118,12 +136,12 @@ class ThreadCursor:
 
     def read_inline_cell(self) -> int:
         operand_ip = self.state.ip + 1
-        if operand_ip >= len(self.state.thread):
+        if operand_ip >= len(self.state.current_thread):
             error_exit(
                 "inline-operand-underflow",
                 f"word at ip={self.state.ip} needs one inline cell",
             )
-        literal = int(self.state.thread[operand_ip])
+        literal = int(self.state.current_thread[operand_ip])
         self.state.ip = operand_ip
         return literal
 
@@ -146,6 +164,51 @@ class ExecutionControl:
 
     def halt(self) -> None:
         self.state.halted = True
+
+    def enter_thread(self, *, thread_name: str, thread: tuple[int, ...]) -> None:
+        self.state.return_stack.append(
+            ReturnFrame(
+                thread_name=self.state.current_thread_name,
+                thread=self.state.current_thread,
+                return_ip=self.state.ip + 1,
+            )
+        )
+        self.state.current_thread_name = thread_name
+        self.state.current_thread = thread
+        self.state.ip = -1
+
+    def return_from_thread(self) -> str:
+        if not self.state.return_stack:
+            self.halt()
+            return "halt"
+        frame = self.state.return_stack.pop()
+        self.state.current_thread_name = frame.thread_name
+        self.state.current_thread = frame.thread
+        self.state.ip = frame.return_ip - 1
+        return f"return to {frame.thread_name} ip {frame.return_ip}"
+
+
+@dataclass
+class CurrentWordThread:
+    """Abstract current-word payload view for colon-thread words."""
+
+    state: LoopState
+    word_registry: dict[int, WordSpec]
+
+    def word_name(self) -> str:
+        xt = self.state.current_xt
+        if xt is None or xt not in self.word_registry:
+            error_exit("unknown-word", "current_xt does not resolve to a word spec")
+        return self.word_registry[xt].name
+
+    def thread(self) -> tuple[int, ...]:
+        xt = self.state.current_xt
+        if xt is None or xt not in self.word_registry:
+            error_exit("unknown-word", "current_xt does not resolve to a word spec")
+        word = self.word_registry[xt]
+        if word.thread is None:
+            error_exit("no-word-thread", f"{word.name} does not carry a thread payload")
+        return word.thread
 
 
 def handle_lit(*, data_stack: list[int], thread_cursor: ThreadCursor, err: Callable[[str, str], None]) -> str:
@@ -188,10 +251,21 @@ def handle_zero_branch(
     return f"fall through because flag != 0 ({flag})"
 
 
+def handle_docol(
+    *,
+    current_word_thread: CurrentWordThread,
+    control: ExecutionControl,
+    err: Callable[[str, str], None],
+) -> str:
+    _ = err
+    child_name = current_word_thread.word_name()
+    control.enter_thread(thread_name=child_name, thread=current_word_thread.thread())
+    return f"enter {child_name}"
+
+
 def handle_exit(*, control: ExecutionControl, err: Callable[[str, str], None]) -> str:
     _ = err
-    control.halt()
-    return "halt"
+    return control.return_from_thread()
 
 
 HANDLERS: dict[int, HandlerFn] = {
@@ -199,6 +273,7 @@ HANDLERS: dict[int, HandlerFn] = {
     int(dictionary.PrimitiveInstruction.ADD): handle_add,
     int(dictionary.PrimitiveInstruction.BRANCH): handle_branch,
     int(dictionary.PrimitiveInstruction.ZBRANCH): handle_zero_branch,
+    int(dictionary.PrimitiveInstruction.DOCOL): handle_docol,
     int(dictionary.PrimitiveInstruction.EXIT): handle_exit,
 }
 
@@ -216,10 +291,11 @@ SCENARIOS = (
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
         expected_decompile=(
-            "0: LIT 2",
-            "2: LIT 3",
-            "4: +",
-            "5: EXIT",
+            "entry:",
+            "  0: LIT 2",
+            "  2: LIT 3",
+            "  4: +",
+            "  5: EXIT",
         ),
         expected_stack=(5,),
         expected_halted=True,
@@ -237,9 +313,10 @@ SCENARIOS = (
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
         expected_decompile=(
-            "0: LIT 2",
-            "2: +",
-            "3: EXIT",
+            "entry:",
+            "  0: LIT 2",
+            "  2: +",
+            "  3: EXIT",
         ),
         expected_stack=(2,),
         expected_halted=False,
@@ -260,10 +337,11 @@ SCENARIOS = (
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
         expected_decompile=(
-            "0: LIT 7",
-            "2: BRANCH 2",
-            "4: LIT 999",
-            "6: EXIT",
+            "entry:",
+            "  0: LIT 7",
+            "  2: BRANCH 2",
+            "  4: LIT 999",
+            "  6: EXIT",
         ),
         expected_stack=(7,),
         expected_halted=True,
@@ -284,10 +362,11 @@ SCENARIOS = (
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
         expected_decompile=(
-            "0: LIT 0",
-            "2: 0BRANCH 2",
-            "4: LIT 999",
-            "6: EXIT",
+            "entry:",
+            "  0: LIT 0",
+            "  2: 0BRANCH 2",
+            "  4: LIT 999",
+            "  6: EXIT",
         ),
         expected_stack=(),
         expected_halted=True,
@@ -295,7 +374,63 @@ SCENARIOS = (
         expected_error_code=None,
         expected_trace_words=("LIT", "0BRANCH", "EXIT"),
     ),
+    Scenario(
+        name="docol-call",
+        text="SUM23 EXIT  with SUM23 := LIT 2 LIT 3 + EXIT",
+        thread=(
+            1000,
+            int(dictionary.PrimitiveInstruction.EXIT),
+        ),
+        expected_decompile=(
+            "entry:",
+            "  0: SUM23",
+            "  1: EXIT",
+            "word SUM23:",
+            "  0: LIT 2",
+            "  2: LIT 3",
+            "  4: +",
+            "  5: EXIT",
+        ),
+        expected_stack=(5,),
+        expected_halted=True,
+        expected_final_ip=1,
+        expected_error_code=None,
+        expected_trace_words=("SUM23", "LIT", "LIT", "+", "EXIT", "EXIT"),
+        custom_words=(
+            WordSpec(
+                xt=1000,
+                name="SUM23",
+                handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
+                thread=(
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    2,
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    3,
+                    int(dictionary.PrimitiveInstruction.ADD),
+                    int(dictionary.PrimitiveInstruction.EXIT),
+                ),
+            ),
+        ),
+    ),
 )
+
+
+def build_word_registry(scenario: Scenario) -> dict[int, WordSpec]:
+    """Build one scenario-local word registry from package descriptors and custom words."""
+
+    registry: dict[int, WordSpec] = {}
+    for primitive in dictionary.PrimitiveInstruction:
+        descriptor = dictionary.instruction_descriptor_for_handler_id(int(primitive))
+        if descriptor is None:
+            continue
+        registry[int(primitive)] = WordSpec(
+            xt=int(primitive),
+            name=descriptor.key,
+            handler_id=int(primitive),
+        )
+    for word in scenario.custom_words:
+        registry[word.xt] = word
+    return registry
 
 
 def litstring_payload_cells(length: int) -> int:
@@ -304,53 +439,87 @@ def litstring_payload_cells(length: int) -> int:
     return (length + 3) // 4
 
 
-def decompile_thread(thread: tuple[int, ...]) -> tuple[str, ...]:
+def decompile_linear_thread(
+    *,
+    label: str,
+    thread: tuple[int, ...],
+    word_registry: dict[int, WordSpec],
+) -> tuple[str, ...]:
     """Render one linear thread into human-readable instruction rows."""
 
-    lines: list[str] = []
+    lines: list[str] = [f"{label}:"]
     ip = 0
 
     while ip < len(thread):
-        handler_id = int(thread[ip])
-        descriptor = dictionary.instruction_descriptor_for_handler_id(handler_id)
+        xt = int(thread[ip])
+        word = word_registry.get(xt)
+        if word is None:
+            lines.append(f"  {ip}: <unknown {xt}>")
+            ip += 1
+            continue
+        descriptor = dictionary.instruction_descriptor_for_handler_id(word.handler_id)
         if descriptor is None:
-            lines.append(f"{ip}: <unknown {handler_id}>")
+            lines.append(f"  {ip}: <unknown-handler {word.handler_id}>")
             ip += 1
             continue
 
-        key = descriptor.key
+        key = word.name
         if key in {"LIT", "BRANCH", "0BRANCH"}:
             operand_ip = ip + 1
             if operand_ip >= len(thread):
-                lines.append(f"{ip}: {key} <missing-inline-cell>")
+                lines.append(f"  {ip}: {key} <missing-inline-cell>")
                 break
             operand = int(thread[operand_ip])
-            lines.append(f"{ip}: {key} {operand}")
+            lines.append(f"  {ip}: {key} {operand}")
             ip = operand_ip + 1
             continue
 
         if key == "LITSTRING":
             length_ip = ip + 1
             if length_ip >= len(thread):
-                lines.append(f"{ip}: LITSTRING <missing-length>")
+                lines.append(f"  {ip}: LITSTRING <missing-length>")
                 break
             length = int(thread[length_ip])
             payload_start = length_ip + 1
             payload_end = payload_start + litstring_payload_cells(length)
             payload = tuple(int(cell) for cell in thread[payload_start:payload_end])
-            lines.append(f"{ip}: LITSTRING len={length} cells={payload}")
+            lines.append(f"  {ip}: LITSTRING len={length} cells={payload}")
             ip = payload_end
             continue
 
-        lines.append(f"{ip}: {key}")
+        lines.append(f"  {ip}: {key}")
         ip += 1
 
+    return tuple(lines)
+
+
+def decompile_program(
+    scenario: Scenario,
+    word_registry: dict[int, WordSpec],
+) -> tuple[str, ...]:
+    """Render the entry thread plus any custom threaded words."""
+
+    lines: list[str] = list(
+        decompile_linear_thread(label="entry", thread=scenario.thread, word_registry=word_registry)
+    )
+    for word in scenario.custom_words:
+        if word.thread is None:
+            continue
+        lines.extend(
+            decompile_linear_thread(
+                label=f"word {word.name}",
+                thread=word.thread,
+                word_registry=word_registry,
+            )
+        )
     return tuple(lines)
 
 
 def injected_resources(
     descriptor: dictionary.InstructionDescriptor,
     state: LoopState,
+    *,
+    word_registry: dict[int, WordSpec],
 ) -> dict[str, object]:
     """Build the concrete injected argument set from metadata."""
 
@@ -364,8 +533,8 @@ def injected_resources(
     if req.needs_thread_jump:
         kwargs["thread_jump"] = ThreadJump(state)
     if req.needs_current_xt:
-        kwargs["current_xt"] = state.current_xt
-    if descriptor.key == "EXIT":
+        kwargs["current_word_thread"] = CurrentWordThread(state, word_registry)
+    if req.needs_return_stack or descriptor.key == "EXIT":
         kwargs["control"] = ExecutionControl(state)
     if req.needs_error_exit:
         kwargs["err"] = error_exit
@@ -400,32 +569,40 @@ def enforce_requirements(
         )
 
 
-def step_once(state: LoopState) -> tuple[dictionary.InstructionDescriptor, list[str], str]:
-    if state.ip >= len(state.thread):
+def step_once(
+    state: LoopState,
+    *,
+    word_registry: dict[int, WordSpec],
+) -> tuple[dictionary.InstructionDescriptor, str, list[str], str]:
+    if state.ip >= len(state.current_thread):
         error_exit("missing-exit", f"ip={state.ip} stepped past the end of the thread")
 
-    state.current_xt = int(state.thread[state.ip])
-    descriptor = dictionary.instruction_descriptor_for_handler_id(state.current_xt)
+    state.current_xt = int(state.current_thread[state.ip])
+    word = word_registry.get(state.current_xt)
+    if word is None:
+        error_exit("unknown-word", f"no word spec for xt {state.current_xt}")
+    descriptor = dictionary.instruction_descriptor_for_handler_id(word.handler_id)
     if descriptor is None:
-        error_exit("unknown-handler", f"no descriptor for handler id {state.current_xt}")
+        error_exit("unknown-handler", f"no descriptor for handler id {word.handler_id}")
 
-    handler = HANDLERS.get(state.current_xt)
+    handler = HANDLERS.get(word.handler_id)
     if handler is None:
         error_exit("missing-python-handler", f"no Python handler wired for {descriptor.key}")
 
     enforce_requirements(descriptor, state)
-    kwargs = injected_resources(descriptor, state)
+    kwargs = injected_resources(descriptor, state, word_registry=word_registry)
     injected_names = list(kwargs.keys())
     note = handler(**kwargs)
 
     if not state.halted:
         state.ip += 1
-    return descriptor, injected_names, note
+    return descriptor, word.name, injected_names, note
 
 
 def execute_scenario(scenario: Scenario) -> ScenarioResult:
-    state = LoopState(thread=scenario.thread)
-    decompiled_thread = decompile_thread(scenario.thread)
+    word_registry = build_word_registry(scenario)
+    state = LoopState(current_thread=scenario.thread)
+    decompiled_thread = decompile_program(scenario, word_registry)
     trace_rows: list[TraceRow] = []
 
     try:
@@ -433,12 +610,15 @@ def execute_scenario(scenario: Scenario) -> ScenarioResult:
             step = len(trace_rows)
             stack_before = tuple(state.data_stack)
             active_ip = state.ip
-            descriptor, injected_names, note = step_once(state)
+            descriptor, word_name, injected_names, note = step_once(
+                state,
+                word_registry=word_registry,
+            )
             trace_rows.append(
                 TraceRow(
                     step=step,
                     ip=active_ip,
-                    word=descriptor.key,
+                    word=word_name,
                     family=descriptor.family.key,
                     associated_data_source=descriptor.associated_data_source.value,
                     kernel=descriptor.requirements.kernel,

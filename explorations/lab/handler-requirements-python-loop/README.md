@@ -14,9 +14,13 @@ This lab stays deliberately small:
 - one thread represented as raw cells
 - one Python `LoopState` with `ip`, `current_xt`, and a data stack
 - one linear decompiler over the same raw thread cells
-- three wired handlers:
+- a tiny scenario-local word registry so named threaded words can be introduced
+- handlers for:
   - `LIT`
   - `+`
+  - `BRANCH`
+  - `0BRANCH`
+  - `DOCOL`
   - `EXIT`
 - one dispatcher that consults package metadata from
   [src/fythvm/dictionary/instructions.py](/Users/manny/fythvm/src/fythvm/dictionary/instructions.py:1)
@@ -32,6 +36,8 @@ It treats those as guidance for preflight checks and resource injection:
 - stack ingress and egress checks come from `HandlerRequirements`
 - inline-thread access comes from `associated_data_source`
 - thread-cursor and error-exit injection come from `HandlerRequirements`
+- `DOCOL` gets an abstract `current_word_thread` capability instead of touching a raw
+  `dfa` detail directly
 - `+` lowers through a local `binary_reduce(...)` kernel instead of spelling out raw
   list mutation inline
 - even the local kernel now goes through `stack_pop(...)`, `stack_push(...)`, and
@@ -62,6 +68,7 @@ The output prints two scenarios:
 - one failing thread: `LIT 2 + EXIT`
 - one unconditional branch skip: `LIT 7 BRANCH 2 LIT 999 EXIT`
 - one conditional branch skip: `LIT 0 0BRANCH 2 LIT 999 EXIT`
+- one threaded call: `SUM23 EXIT` with `SUM23 := LIT 2 LIT 3 + EXIT`
 
 Each scenario now carries explicit expected outcomes:
 
@@ -74,6 +81,7 @@ Each scenario now carries explicit expected outcomes:
 For each step the lab shows:
 
 - the linear decompiled thread
+- any custom threaded word bodies
 - the current `ip`
 - the current word
 - the word family
@@ -94,6 +102,8 @@ That makes the current metadata story visible in one place:
   and `err`
 - `0BRANCH` is `primitive-inline-operand` and gets `data_stack`, `thread_cursor`,
   `thread_jump`, and `err`
+- `SUM23` is a `colon-thread` word and gets `current_word_thread`, `control`, and
+  `err`
 - `EXIT` is `primitive-empty` and gets `control` plus `err`
 
 ## Pattern / Takeaway
@@ -131,6 +141,11 @@ effect. It is better understood here as a conservative preflight requirement for
 current helper shape, not as a full algebra of stack deltas. That distinction matters
 once words both consume and produce values.
 
+It is also easy to let `current_xt -> DFA` leak all the way into handler code just
+because the underlying threaded-word representation is known. This lab deliberately
+keeps `DOCOL` on a higher-level `current_word_thread` capability so the handler only
+depends on "enter this word's thread" rather than on one exposed storage detail.
+
 It is also easy to write a decompiler that follows runtime control flow instead of
 rendering the linear thread layout. This lab keeps those separate on purpose:
 execution traces show which words actually ran, while the decompiler shows what is
@@ -159,7 +174,7 @@ Use this pattern when:
 - you want to pressure-test the metadata model before building real lowering
 - you want to inspect injected resources and preflight checks in a human-readable way
 - you need a tiny execution-shaped artifact to discuss `LIT` versus `+` versus
-  `EXIT`
+  `EXIT`, or primitive inline-thread words versus `DOCOL`
 - you want to see cursor-style and jump-style thread capabilities in the same loop
 - you want a safe place to iterate on handler surfaces before committing to llvmlite
 
@@ -172,8 +187,8 @@ It is also the wrong shape if the real question is about:
 
 - llvmlite CFG structure
 - `musttail` continuation threading
-- return-stack threading through `DOCOL`
 - optimization of stack access or frame layout
+- richer decompiler formatting than "linear stored thread plus named child bodies"
 
 Those need separate labs.
 
@@ -181,8 +196,9 @@ Those need separate labs.
 
 - Should `associated_data_source` become first-class enough that the injection layer
   never has to inspect family metadata?
-- What is the smallest useful next extension:
-  - `DOCOL`
+- What is the smallest useful next extension after `DOCOL`:
+  - `LITSTRING`
+  - compile-time control words that emit `BRANCH` / `0BRANCH`
 - Should `associated_data_source` remain purely semantic, or should some injections
   continue to be inferred from it alongside explicit requirement flags?
 - At what point does this Python shape want a second variant that mirrors future
