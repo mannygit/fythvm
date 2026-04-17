@@ -43,6 +43,16 @@ def error_exit(code: str, detail: str) -> None:
     raise ExecutionFault(code, detail)
 
 
+def binary_reduce(data_stack: list[int], fn: Callable[[int, int], int]) -> int:
+    """Local stack-shape kernel: reduce two inputs into one output."""
+
+    rhs = data_stack.pop()
+    lhs = data_stack.pop()
+    result = fn(lhs, rhs)
+    data_stack.append(result)
+    return result
+
+
 @dataclass
 class ThreadCursor:
     """Thread-local operand access without handing the handler raw dispatch control."""
@@ -81,10 +91,9 @@ def handle_lit(*, data_stack: list[int], thread_cursor: ThreadCursor, err: Calla
 def handle_add(*, data_stack: list[int], err: Callable[[str, str], None]) -> str:
     if len(data_stack) < 2:
         err("stack-underflow", "ADD needs two cells")
-    rhs = data_stack.pop()
-    lhs = data_stack.pop()
-    result = lhs + rhs
-    data_stack.append(result)
+    lhs = data_stack[-2]
+    rhs = data_stack[-1]
+    result = binary_reduce(data_stack, lambda left, right: left + right)
     return f"{lhs} + {rhs} -> {result}"
 
 

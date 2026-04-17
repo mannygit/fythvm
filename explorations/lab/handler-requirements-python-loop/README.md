@@ -30,6 +30,8 @@ It treats those as guidance for preflight checks and resource injection:
 - stack ingress and egress checks come from `HandlerRequirements`
 - inline-thread access comes from `associated_data_source`
 - thread-cursor and error-exit injection come from `HandlerRequirements`
+- `+` lowers through a local `binary_reduce(...)` kernel instead of spelling out raw
+  list mutation inline
 
 This is a pure Python proof of shape. It does not try to be the package runtime and
 it does not lower anything through llvmlite.
@@ -88,6 +90,7 @@ The key boundary is still the same:
 - metadata explains what a handler needs
 - the loop/dispatcher owns control flow
 - the handler body owns only the local effect
+- reusable stack-shape kernels sit between handler meaning and storage details
 
 ## Non-Obvious Failure Modes
 
@@ -100,6 +103,12 @@ Another easy mistake is to read `min_data_stack_out_space` as the exact net stac
 effect. It is better understood here as a conservative preflight requirement for the
 current helper shape, not as a full algebra of stack deltas. That distinction matters
 once words both consume and produce values.
+
+It is also easy to leave the lab in a misleading state by writing handlers directly as
+`pop/pop/push` against a Python list. That works, but it teaches the wrong lesson.
+This lab keeps `+` routed through a local `binary_reduce(...)` kernel so the visible
+shape stays "binary reducer over an abstract stack surface" rather than "Python list
+is the contract."
 
 This lab also exposed that a raw `needs_ip` flag is too coarse. `LIT` does not want
 to return a new `ip`; it wants a thread-local cursor capability that can consume the
