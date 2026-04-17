@@ -18,6 +18,8 @@ This lab stays deliberately small:
   - `S"`
   - `IF`
   - `THEN`
+- one tiny compiler-word lookup path driven by
+  [src/fythvm/dictionary/compiler_words.py](/Users/manny/fythvm/src/fythvm/dictionary/compiler_words.py:1)
 - a tiny scenario-local word registry so named threaded words can be introduced
 - handlers for:
   - `LIT`
@@ -35,12 +37,17 @@ The lab uses the current package concepts directly:
 - `InstructionDescriptor.family`
 - `InstructionDescriptor.associated_data_source`
 - `HandlerRequirements`
+- `CompilerWordDescriptor`
 
 It treats those as guidance for preflight checks and resource injection:
 
 - stack ingress and egress checks come from `HandlerRequirements`
 - inline-thread access comes from `associated_data_source`
 - thread-cursor and error-exit injection come from `HandlerRequirements`
+- compile-time `S"` / `IF` / `THEN` lookup comes from the neighboring compiler-word
+  registry
+- compile-time parsing and emission go through `SourceCursor`, `ThreadEmitter`, and
+  `PatchStack` instead of open-coded parser branches
 - `DOCOL` gets an abstract `current_word_thread` capability instead of touching a raw
   `dfa` detail directly
 - `+` lowers through a local `binary_reduce(...)` kernel instead of spelling out raw
@@ -72,10 +79,15 @@ The output prints two scenarios:
 - one successful thread: `LIT 2 LIT 3 + EXIT`
 - one counted inline string: `LITSTRING "hi" EXIT`
 - one compiled string emitter: `S" hi" EXIT`
+- one compiled long string emitter: `S" hello" EXIT`
 - one failing thread: `LIT 2 + EXIT`
 - one unconditional branch skip: `LIT 7 BRANCH 2 LIT 999 EXIT`
 - one conditional branch skip: `LIT 0 0BRANCH 2 LIT 999 EXIT`
 - one compiled branch emitter: `LIT 0 IF LIT 999 THEN EXIT`
+- three compile-time failure cases:
+  - unterminated `S"`
+  - `THEN` without `IF`
+  - `IF` without `THEN`
 - one threaded call: `SUM23 EXIT` with `SUM23 := LIT 2 LIT 3 + EXIT`
 
 Each scenario now carries explicit expected outcomes:
@@ -111,9 +123,11 @@ That makes the current metadata story visible in one place:
   now consumes a variable-width counted payload
 - `+` is `primitive-empty` and gets `data_stack` and `err`
 - `S"` is not a runtime handler here; it is a tiny compile-time emitter that lays
-  down `LITSTRING`, a count cell, and packed payload cells
+  down `LITSTRING`, a count cell, and packed payload cells through a compiler-word
+  descriptor and a thread emitter
 - `IF` and `THEN` are also compile-time emitters here; they patch `0BRANCH` offsets
-  into the emitted thread instead of participating in runtime dispatch directly
+  into the emitted thread through a patch stack instead of participating in runtime
+  dispatch directly
 - `BRANCH` is `primitive-inline-operand` and gets `thread_cursor`, `thread_jump`,
   and `err`
 - `0BRANCH` is `primitive-inline-operand` and gets `data_stack`, `thread_cursor`,
@@ -135,6 +149,8 @@ And a very small compile-time layer is already enough to close the loop back int
 that runtime shape if we keep it narrow:
 
 - parse-time words consume source text
+- compiler/meta words live in a neighboring compiler-word registry instead of the
+  runtime instruction registry
 - compile-time emitters lay down runtime thread cells
 - the existing decompiler and executor then validate the emitted shape
 
@@ -189,6 +205,10 @@ the same raw `ip` integer.
 cell. Some words consume a variable-width counted payload, and the handler surface is
 cleaner if that remains a cursor operation instead of open-coded `ip` arithmetic in
 the handler.
+
+This lab now keeps that abstraction explicitly above C-string territory: compile-time
+parsing and runtime inline-string recovery both traffic in a counted payload view, not
+in a NUL-terminated host string model.
 
 It is also easy to blur runtime words with compile-time emitters once the same lab
 contains both. This lab keeps that boundary explicit: `S"` and `IF`/`THEN` operate on

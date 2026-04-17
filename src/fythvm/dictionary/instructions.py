@@ -57,9 +57,12 @@ class HandlerRequirements:
     needs_current_xt: bool = False
     needs_return_stack: bool = False
     needs_input_source: bool = False
+    needs_source_cursor: bool = False
     needs_error_exit: bool = False
     needs_dictionary: bool = False
     needs_here: bool = False
+    needs_thread_emitter: bool = False
+    needs_patch_stack: bool = False
     # Shared lowering-shape hint. This is metadata only for now, not a callable or
     # runtime ABI choice. Names are intended to track the stack-kernel exploration
     # vocabulary where practical.
@@ -224,9 +227,12 @@ def _req(
     needs_current_xt: bool = False,
     needs_return_stack: bool = False,
     needs_input_source: bool = False,
+    needs_source_cursor: bool = False,
     needs_error_exit: bool = True,
     needs_dictionary: bool = False,
     needs_here: bool = False,
+    needs_thread_emitter: bool = False,
+    needs_patch_stack: bool = False,
     kernel: str | None = None,
 ) -> HandlerRequirements:
     return HandlerRequirements(
@@ -239,9 +245,12 @@ def _req(
         needs_current_xt=needs_current_xt,
         needs_return_stack=needs_return_stack,
         needs_input_source=needs_input_source,
+        needs_source_cursor=needs_source_cursor,
         needs_error_exit=needs_error_exit,
         needs_dictionary=needs_dictionary,
         needs_here=needs_here,
+        needs_thread_emitter=needs_thread_emitter,
+        needs_patch_stack=needs_patch_stack,
         kernel=kernel,
     )
 

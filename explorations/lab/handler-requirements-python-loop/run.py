@@ -9,6 +9,7 @@ from fythvm import dictionary
 
 
 HandlerFn = Callable[..., str]
+CompilerWordHandlerFn = Callable[..., str]
 
 
 @dataclass(frozen=True)
@@ -71,10 +72,21 @@ class ReturnFrame:
 
 
 @dataclass(frozen=True)
-class InlineStringRef:
-    """Pointer-like inline string view without exposing raw thread offsets."""
+class CountedPayload:
+    """Opaque counted byte payload with no C-string semantics."""
 
-    payload: bytes
+    octets: bytes
+
+    @property
+    def length(self) -> int:
+        return len(self.octets)
+
+
+@dataclass(frozen=True)
+class InlineStringRef:
+    """Pointer-like inline payload view without exposing raw thread offsets."""
+
+    payload: CountedPayload
 
 
 StackValue: TypeAlias = int | InlineStringRef
@@ -143,27 +155,27 @@ def binary_reduce(data_stack: list[StackValue], fn: Callable[[int, int], int]) -
     return result
 
 
-def pack_inline_bytes(payload: bytes) -> tuple[int, ...]:
-    """Pack a byte payload into 32-bit little-endian thread cells."""
+def pack_inline_payload(payload: CountedPayload) -> tuple[int, ...]:
+    """Pack a counted payload into 32-bit little-endian thread cells."""
 
-    if not payload:
+    if not payload.octets:
         return ()
 
     cells: list[int] = []
-    for start in range(0, len(payload), 4):
-        chunk = payload[start : start + 4]
+    for start in range(0, payload.length, 4):
+        chunk = payload.octets[start : start + 4]
         padded = chunk.ljust(4, b"\x00")
         cells.append(int.from_bytes(padded, byteorder="little", signed=False))
     return tuple(cells)
 
 
-def unpack_inline_bytes(*, thread: tuple[int, ...], start: int, length: int) -> bytes:
-    """Decode one counted inline byte payload from packed 32-bit thread cells."""
+def unpack_inline_payload(*, thread: tuple[int, ...], start: int, length: int) -> CountedPayload:
+    """Decode one counted inline payload from packed 32-bit thread cells."""
 
     cell_count = litstring_payload_cells(length)
     payload_cells = thread[start : start + cell_count]
     raw = b"".join(int(cell).to_bytes(4, byteorder="little", signed=False) for cell in payload_cells)
-    return raw[:length]
+    return CountedPayload(octets=raw[:length])
 
 
 @dataclass
@@ -183,8 +195,8 @@ class ThreadCursor:
         self.state.ip = operand_ip
         return literal
 
-    def read_counted_bytes(self) -> bytes:
-        """Read one Forth-style counted inline string payload."""
+    def read_counted_payload(self) -> CountedPayload:
+        """Read one Forth-style counted inline payload."""
 
         length_ip = self.state.ip + 1
         if length_ip >= len(self.state.current_thread):
@@ -206,7 +218,7 @@ class ThreadCursor:
                 ),
             )
 
-        payload = unpack_inline_bytes(
+        payload = unpack_inline_payload(
             thread=self.state.current_thread,
             start=payload_start,
             length=length,
@@ -280,6 +292,85 @@ class CurrentWordThread:
         return word.thread
 
 
+@dataclass
+class SourceCursor:
+    """Structured compile-time parser state for the lab."""
+
+    source: str
+    position: int = 0
+
+    def skip_whitespace(self) -> None:
+        while self.position < len(self.source) and self.source[self.position].isspace():
+            self.position += 1
+
+    def at_end(self) -> bool:
+        self.skip_whitespace()
+        return self.position >= len(self.source)
+
+    def read_token(self) -> str:
+        self.skip_whitespace()
+        if self.position >= len(self.source):
+            error_exit("compile-parse-error", "expected another token")
+
+        end = self.position
+        while end < len(self.source) and not self.source[end].isspace():
+            end += 1
+        token = self.source[self.position:end]
+        self.position = end
+        return token
+
+    def read_until_quote(self) -> CountedPayload:
+        self.skip_whitespace()
+        end = self.source.find('"', self.position)
+        if end == -1:
+            error_exit("compile-parse-error", 'unterminated S" string literal')
+        payload = CountedPayload(octets=self.source[self.position:end].encode("ascii"))
+        self.position = end + 1
+        return payload
+
+
+@dataclass
+class ThreadEmitter:
+    """Capability wrapper over compile-time thread emission."""
+
+    emitted: list[int] = field(default_factory=list)
+
+    def emit_cell(self, value: int) -> None:
+        self.emitted.append(int(value))
+
+    def emit_cells(self, values: tuple[int, ...] | list[int]) -> None:
+        for value in values:
+            self.emit_cell(int(value))
+
+    def emit_packed_payload(self, payload: CountedPayload) -> None:
+        self.emit_cells(pack_inline_payload(payload))
+
+    def reserve_cell(self) -> int:
+        self.emit_cell(0)
+        return len(self.emitted) - 1
+
+    def patch_cell(self, index: int, value: int) -> None:
+        self.emitted[index] = int(value)
+
+    def finish(self) -> tuple[int, ...]:
+        return tuple(self.emitted)
+
+
+@dataclass
+class PatchStack:
+    """Small patch-slot stack for compile-time control words."""
+
+    slots: list[int] = field(default_factory=list)
+
+    def push(self, index: int) -> None:
+        self.slots.append(index)
+
+    def pop(self) -> int:
+        if not self.slots:
+            error_exit("compile-parse-error", "THEN has no matching IF")
+        return self.slots.pop()
+
+
 def handle_lit(
     *,
     data_stack: list[StackValue],
@@ -299,11 +390,11 @@ def handle_litstring(
     err: Callable[[str, str], None],
 ) -> str:
     _ = err
-    payload = thread_cursor.read_counted_bytes()
+    payload = thread_cursor.read_counted_payload()
     string_ref = InlineStringRef(payload=payload)
     stack_push(data_stack, string_ref)
-    stack_push(data_stack, len(payload))
-    return f"push counted bytes {payload!r} len {len(payload)}"
+    stack_push(data_stack, payload.length)
+    return f"push counted payload {payload.octets!r} len {payload.length}"
 
 
 def handle_add(*, data_stack: list[StackValue], err: Callable[[str, str], None]) -> str:
@@ -356,6 +447,46 @@ def handle_exit(*, control: ExecutionControl, err: Callable[[str, str], None]) -
     return control.return_from_thread()
 
 
+def handle_s_quote(
+    *,
+    source_cursor: SourceCursor,
+    thread_emitter: ThreadEmitter,
+    err: Callable[[str, str], None],
+) -> str:
+    _ = err
+    payload = source_cursor.read_until_quote()
+    thread_emitter.emit_cell(int(dictionary.PrimitiveInstruction.LITSTRING))
+    thread_emitter.emit_cell(payload.length)
+    thread_emitter.emit_packed_payload(payload)
+    return f'emit S" counted payload {payload.octets!r}'
+
+
+def handle_if(
+    *,
+    thread_emitter: ThreadEmitter,
+    patch_stack: PatchStack,
+    err: Callable[[str, str], None],
+) -> str:
+    _ = err
+    thread_emitter.emit_cell(int(dictionary.PrimitiveInstruction.ZBRANCH))
+    operand_index = thread_emitter.reserve_cell()
+    patch_stack.push(operand_index)
+    return f"emit IF placeholder at {operand_index}"
+
+
+def handle_then(
+    *,
+    thread_emitter: ThreadEmitter,
+    patch_stack: PatchStack,
+    err: Callable[[str, str], None],
+) -> str:
+    _ = err
+    operand_index = patch_stack.pop()
+    offset = len(thread_emitter.emitted) - operand_index - 1
+    thread_emitter.patch_cell(operand_index, offset)
+    return f"patch THEN placeholder at {operand_index} with {offset}"
+
+
 HANDLERS: dict[int, HandlerFn] = {
     int(dictionary.PrimitiveInstruction.LIT): handle_lit,
     int(dictionary.PrimitiveInstruction.LITSTRING): handle_litstring,
@@ -364,6 +495,13 @@ HANDLERS: dict[int, HandlerFn] = {
     int(dictionary.PrimitiveInstruction.ZBRANCH): handle_zero_branch,
     int(dictionary.PrimitiveInstruction.DOCOL): handle_docol,
     int(dictionary.PrimitiveInstruction.EXIT): handle_exit,
+}
+
+
+COMPILER_WORD_HANDLERS: dict[str, CompilerWordHandlerFn] = {
+    'S"': handle_s_quote,
+    "IF": handle_if,
+    "THEN": handle_then,
 }
 
 
@@ -419,7 +557,7 @@ SCENARIOS = (
         thread=(
             int(dictionary.PrimitiveInstruction.LITSTRING),
             2,
-            *pack_inline_bytes(b"hi"),
+            *pack_inline_payload(CountedPayload(octets=b"hi")),
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
         expected_decompile=(
@@ -427,7 +565,7 @@ SCENARIOS = (
             "  0: LITSTRING b'hi'",
             "  3: EXIT",
         ),
-        expected_stack=(InlineStringRef(payload=b"hi"), 2),
+        expected_stack=(InlineStringRef(payload=CountedPayload(octets=b"hi")), 2),
         expected_halted=True,
         expected_final_ip=3,
         expected_error_code=None,
@@ -441,7 +579,7 @@ SCENARIOS = (
         expected_compiled_thread=(
             int(dictionary.PrimitiveInstruction.LITSTRING),
             2,
-            *pack_inline_bytes(b"hi"),
+            *pack_inline_payload(CountedPayload(octets=b"hi")),
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
         expected_decompile=(
@@ -449,9 +587,31 @@ SCENARIOS = (
             "  0: LITSTRING b'hi'",
             "  3: EXIT",
         ),
-        expected_stack=(InlineStringRef(payload=b"hi"), 2),
+        expected_stack=(InlineStringRef(payload=CountedPayload(octets=b"hi")), 2),
         expected_halted=True,
         expected_final_ip=3,
+        expected_error_code=None,
+        expected_trace_words=("LITSTRING", "EXIT"),
+    ),
+    Scenario(
+        name="compile-s-quote-long",
+        text='compile S" hello" EXIT',
+        thread=None,
+        compile_source='S" hello" EXIT',
+        expected_compiled_thread=(
+            int(dictionary.PrimitiveInstruction.LITSTRING),
+            5,
+            *pack_inline_payload(CountedPayload(octets=b"hello")),
+            int(dictionary.PrimitiveInstruction.EXIT),
+        ),
+        expected_decompile=(
+            "entry:",
+            "  0: LITSTRING b'hello'",
+            "  4: EXIT",
+        ),
+        expected_stack=(InlineStringRef(payload=CountedPayload(octets=b"hello")), 5),
+        expected_halted=True,
+        expected_final_ip=4,
         expected_error_code=None,
         expected_trace_words=("LITSTRING", "EXIT"),
     ),
@@ -533,6 +693,42 @@ SCENARIOS = (
         expected_trace_words=("LIT", "0BRANCH", "EXIT"),
     ),
     Scenario(
+        name="compile-s-quote-unterminated",
+        text='compile S" hi',
+        thread=None,
+        compile_source='S" hi',
+        expected_decompile=(),
+        expected_stack=(),
+        expected_halted=False,
+        expected_final_ip=0,
+        expected_error_code="compile-parse-error",
+        expected_trace_words=(),
+    ),
+    Scenario(
+        name="compile-then-without-if",
+        text="compile THEN EXIT",
+        thread=None,
+        compile_source="THEN EXIT",
+        expected_decompile=(),
+        expected_stack=(),
+        expected_halted=False,
+        expected_final_ip=0,
+        expected_error_code="compile-parse-error",
+        expected_trace_words=(),
+    ),
+    Scenario(
+        name="compile-if-without-then",
+        text="compile LIT 0 IF EXIT",
+        thread=None,
+        compile_source="LIT 0 IF EXIT",
+        expected_decompile=(),
+        expected_stack=(),
+        expected_halted=False,
+        expected_final_ip=0,
+        expected_error_code="compile-parse-error",
+        expected_trace_words=(),
+    ),
+    Scenario(
         name="docol-call",
         text="SUM23 EXIT  with SUM23 := LIT 2 LIT 3 + EXIT",
         thread=(
@@ -607,78 +803,70 @@ def litstring_payload_cells(length: int) -> int:
     return (length + 3) // 4
 
 
-def consume_token(source: str, start: int) -> tuple[str, int]:
-    """Read one whitespace-delimited token from a compile source."""
+def injected_compile_resources(
+    descriptor: dictionary.CompilerWordDescriptor,
+    *,
+    source_cursor: SourceCursor,
+    thread_emitter: ThreadEmitter,
+    patch_stack: PatchStack,
+) -> dict[str, object]:
+    """Build the compile-time capability set for one compiler word."""
 
-    cursor = start
-    while cursor < len(source) and source[cursor].isspace():
-        cursor += 1
-    if cursor >= len(source):
-        error_exit("compile-parse-error", "expected another token")
+    req = descriptor.requirements
+    kwargs: dict[str, object] = {}
 
-    end = cursor
-    while end < len(source) and not source[end].isspace():
-        end += 1
-    return source[cursor:end], end
+    if req.needs_source_cursor:
+        kwargs["source_cursor"] = source_cursor
+    if req.needs_thread_emitter:
+        kwargs["thread_emitter"] = thread_emitter
+    if req.needs_patch_stack:
+        kwargs["patch_stack"] = patch_stack
+    if req.needs_error_exit:
+        kwargs["err"] = error_exit
+    return kwargs
 
 
 def compile_source_to_thread(source: str) -> tuple[int, ...]:
     """Compile a tiny source language into one entry thread."""
 
-    emitted: list[int] = []
-    branch_placeholders: list[int] = []
-    cursor = 0
+    source_cursor = SourceCursor(source)
+    thread_emitter = ThreadEmitter()
+    patch_stack = PatchStack()
 
-    while True:
-        while cursor < len(source) and source[cursor].isspace():
-            cursor += 1
-        if cursor >= len(source):
-            break
-
-        if source.startswith('S"', cursor):
-            cursor += 2
-            if cursor < len(source) and source[cursor].isspace():
-                cursor += 1
-            end = source.find('"', cursor)
-            if end == -1:
-                error_exit("compile-parse-error", 'unterminated S" string literal')
-            payload = source[cursor:end].encode("ascii")
-            emitted.append(int(dictionary.PrimitiveInstruction.LITSTRING))
-            emitted.append(len(payload))
-            emitted.extend(pack_inline_bytes(payload))
-            cursor = end + 1
+    while not source_cursor.at_end():
+        token = source_cursor.read_token()
+        compiler_descriptor = dictionary.compiler_word_descriptor_for_key(token)
+        if compiler_descriptor is not None:
+            handler = COMPILER_WORD_HANDLERS.get(token)
+            if handler is None:
+                error_exit("missing-compiler-handler", f"no compiler handler wired for {token}")
+            kwargs = injected_compile_resources(
+                compiler_descriptor,
+                source_cursor=source_cursor,
+                thread_emitter=thread_emitter,
+                patch_stack=patch_stack,
+            )
+            handler(**kwargs)
             continue
 
-        token, cursor = consume_token(source, cursor)
         if token == "LIT":
-            literal_token, cursor = consume_token(source, cursor)
-            emitted.append(int(dictionary.PrimitiveInstruction.LIT))
-            emitted.append(int(literal_token))
+            literal_token = source_cursor.read_token()
+            thread_emitter.emit_cell(int(dictionary.PrimitiveInstruction.LIT))
+            thread_emitter.emit_cell(int(literal_token))
             continue
         if token == "+":
-            emitted.append(int(dictionary.PrimitiveInstruction.ADD))
+            thread_emitter.emit_cell(int(dictionary.PrimitiveInstruction.ADD))
             continue
         if token == "EXIT":
-            emitted.append(int(dictionary.PrimitiveInstruction.EXIT))
-            continue
-        if token == "IF":
-            emitted.append(int(dictionary.PrimitiveInstruction.ZBRANCH))
-            emitted.append(0)
-            branch_placeholders.append(len(emitted) - 1)
-            continue
-        if token == "THEN":
-            if not branch_placeholders:
-                error_exit("compile-parse-error", "THEN has no matching IF")
-            operand_index = branch_placeholders.pop()
-            emitted[operand_index] = len(emitted) - operand_index - 1
+            thread_emitter.emit_cell(int(dictionary.PrimitiveInstruction.EXIT))
             continue
 
         error_exit("compile-parse-error", f"unknown compile token {token!r}")
 
-    if branch_placeholders:
+    if patch_stack.slots:
         error_exit("compile-parse-error", "IF without matching THEN")
 
-    return tuple(emitted)
+    return thread_emitter.finish()
 
 
 def decompile_linear_thread(
@@ -727,8 +915,8 @@ def decompile_linear_thread(
             if payload_end > len(thread):
                 lines.append(f"  {ip}: LITSTRING len={length} <missing-payload>")
                 break
-            payload = unpack_inline_bytes(thread=thread, start=payload_start, length=length)
-            lines.append(f"  {ip}: LITSTRING {payload!r}")
+            payload = unpack_inline_payload(thread=thread, start=payload_start, length=length)
+            lines.append(f"  {ip}: LITSTRING {payload.octets!r}")
             ip = payload_end
             continue
 
@@ -845,29 +1033,29 @@ def step_once(
 
 
 def execute_scenario(scenario: Scenario) -> ScenarioResult:
-    compiled_thread = resolve_entry_thread(scenario)
     word_registry = build_word_registry(scenario)
-    state = LoopState(current_thread=compiled_thread)
-    decompiled_thread = decompile_program(
-        Scenario(
-            name=scenario.name,
-            text=scenario.text,
-            thread=compiled_thread,
-            expected_decompile=scenario.expected_decompile,
-            expected_stack=scenario.expected_stack,
-            expected_halted=scenario.expected_halted,
-            expected_final_ip=scenario.expected_final_ip,
-            expected_error_code=scenario.expected_error_code,
-            expected_trace_words=scenario.expected_trace_words,
-            compile_source=scenario.compile_source,
-            expected_compiled_thread=scenario.expected_compiled_thread,
-            custom_words=scenario.custom_words,
-        ),
-        word_registry,
-    )
     trace_rows: list[TraceRow] = []
 
     try:
+        compiled_thread = resolve_entry_thread(scenario)
+        state = LoopState(current_thread=compiled_thread)
+        decompiled_thread = decompile_program(
+            Scenario(
+                name=scenario.name,
+                text=scenario.text,
+                thread=compiled_thread,
+                expected_decompile=scenario.expected_decompile,
+                expected_stack=scenario.expected_stack,
+                expected_halted=scenario.expected_halted,
+                expected_final_ip=scenario.expected_final_ip,
+                expected_error_code=scenario.expected_error_code,
+                expected_trace_words=scenario.expected_trace_words,
+                compile_source=scenario.compile_source,
+                expected_compiled_thread=scenario.expected_compiled_thread,
+                custom_words=scenario.custom_words,
+            ),
+            word_registry,
+        )
         while not state.halted:
             step = len(trace_rows)
             stack_before = tuple(state.data_stack)
@@ -894,11 +1082,11 @@ def execute_scenario(scenario: Scenario) -> ScenarioResult:
             )
     except ExecutionFault as exc:
         return ScenarioResult(
-            compiled_thread=compiled_thread,
-            decompiled_thread=decompiled_thread,
-            final_stack=tuple(state.data_stack),
-            halted=state.halted,
-            final_ip=state.ip,
+            compiled_thread=tuple() if "compiled_thread" not in locals() else compiled_thread,
+            decompiled_thread=tuple() if "decompiled_thread" not in locals() else decompiled_thread,
+            final_stack=tuple() if "state" not in locals() else tuple(state.data_stack),
+            halted=False if "state" not in locals() else state.halted,
+            final_ip=0 if "state" not in locals() else state.ip,
             error_code=exc.code,
             error_detail=exc.detail,
             trace=tuple(trace_rows),

@@ -157,6 +157,9 @@ def test_instruction_registry_exposes_compiler_and_input_requirements() -> None:
     assert tick_descriptor.requirements.needs_dictionary is True
     assert tick_descriptor.requirements.min_data_stack_out_space == 1
     assert tick_descriptor.requirements.kernel == "tick"
+    assert create_descriptor.requirements.needs_source_cursor is False
+    assert create_descriptor.requirements.needs_thread_emitter is False
+    assert create_descriptor.requirements.needs_patch_stack is False
 
 
 def test_instruction_registry_exposes_lit_inline_operand_metadata() -> None:
@@ -233,6 +236,38 @@ def test_instruction_registry_exposes_docol_word_local_thread_metadata() -> None
 
 def test_instruction_registry_leaves_unregistered_instruction_without_descriptor() -> None:
     assert dictionary.instruction_descriptor_for_handler_id(120) is None
+
+
+def test_compiler_word_registry_exposes_s_quote_metadata() -> None:
+    descriptor = dictionary.compiler_word_descriptor_for_key('S"')
+
+    assert descriptor is not None
+    assert descriptor.immediate is True
+    assert descriptor.compile_only is True
+    assert descriptor.requirements.needs_source_cursor is True
+    assert descriptor.requirements.needs_thread_emitter is True
+    assert descriptor.requirements.needs_patch_stack is False
+    assert descriptor.requirements.needs_error_exit is True
+    assert descriptor.requirements.kernel == "compile_string_literal"
+
+
+def test_compiler_word_registry_exposes_if_then_patch_requirements() -> None:
+    if_descriptor = dictionary.compiler_word_descriptor_for_key("IF")
+    then_descriptor = dictionary.compiler_word_descriptor_for_key("THEN")
+
+    assert if_descriptor is not None
+    assert if_descriptor.immediate is True
+    assert if_descriptor.compile_only is True
+    assert if_descriptor.requirements.needs_thread_emitter is True
+    assert if_descriptor.requirements.needs_patch_stack is True
+    assert if_descriptor.requirements.kernel == "compile_if"
+
+    assert then_descriptor is not None
+    assert then_descriptor.immediate is True
+    assert then_descriptor.compile_only is True
+    assert then_descriptor.requirements.needs_thread_emitter is True
+    assert then_descriptor.requirements.needs_patch_stack is True
+    assert then_descriptor.requirements.kernel == "compile_then"
 
 
 def test_instruction_descriptor_is_separate_from_family_mapping() -> None:

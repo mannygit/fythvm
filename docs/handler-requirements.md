@@ -56,9 +56,12 @@ HandlerRequirements(
     needs_current_xt=False,
     needs_return_stack=False,
     needs_input_source=False,
+    needs_source_cursor=False,
     needs_error_exit=False,
     needs_dictionary=False,
     needs_here=False,
+    needs_thread_emitter=False,
+    needs_patch_stack=False,
     kernel=None,
 )
 ```
@@ -90,17 +93,22 @@ execution shapes are exercised.
   - the handler recovers word-local data via `current_xt -> DFA`
 - `needs_return_stack`
   - the handler needs direct return/control-stack access
+- `needs_input_source`
+  - the handler or compiler/meta word needs the low-level parse/input facility used by
+    primitives like `KEY`, `WORD`, and `CHAR`
+- `needs_source_cursor`
+  - the handler or compiler/meta word needs a structured parse-time cursor
 - `needs_error_exit`
   - the handler expects an error-exit facility
 - `needs_dictionary`
   - the handler needs dictionary access
 - `needs_here`
   - the handler needs the current dictionary write cursor
-
-### Injected Parse-Time Resource
-
-- `needs_input_source`
-  - the handler or compiler/meta word consumes parse-time input state
+- `needs_thread_emitter`
+  - the handler or compiler/meta word needs a higher-level definition/thread emitter
+    that wraps `HERE`
+- `needs_patch_stack`
+  - the handler or compiler/meta word needs control-flow patch bookkeeping
 
 This stays separate from runtime associated-data-source metadata.
 
@@ -163,6 +171,13 @@ Examples:
     - `needs_here=True`
     - `needs_error_exit=True`
 
+- `S"`
+  - compiler/meta vocabulary example
+  - likely requirements:
+    - `needs_source_cursor=True`
+    - `needs_thread_emitter=True`
+    - `needs_error_exit=True`
+
 ## Lowering Entry Points
 
 The intended lowering style is:
@@ -179,6 +194,9 @@ def lower_lit(builder, *, data_stack, thread_cursor, err):
     ...
 
 def lower_branch(builder, *, thread_cursor, thread_jump, err):
+    ...
+
+def handle_s_quote(*, source_cursor, thread_emitter, err):
     ...
 ```
 

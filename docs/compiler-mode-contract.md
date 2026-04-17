@@ -92,9 +92,12 @@ Those are different data sources and should not be conflated.
 The neighboring helper/lowering consequence is:
 
 - compiler/meta words may still declare needs like input source, dictionary access,
-  `HERE`, or error-exit facilities
+  `HERE`, source cursors, thread emitters, or error-exit facilities
 - but those belong to a `HandlerRequirements`-style layer, not to runtime
   associated-data-source metadata
+
+The current package direction is to let compiler/meta words live in a neighboring
+compiler-word registry rather than forcing them into the runtime instruction registry.
 
 ## Strong JonesForth Signals
 
@@ -138,6 +141,13 @@ These show the dual-mode pattern clearly:
 - same word
 - one behavior in interpret mode
 - another behavior in compile mode
+
+For the current package pass, only the compile-time `S"` behavior is modeled:
+
+- `S"` is treated as a compiler/meta word in a neighboring compiler-word registry
+- it parses source text and emits `LITSTRING`, one length cell, and packed payload
+  cells into the current definition
+- immediate-mode temporary storage behavior is deliberately left out for now
 
 ### `TO`
 

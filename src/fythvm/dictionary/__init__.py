@@ -12,6 +12,12 @@ from .families import (
     WordFamily,
     family_for_handler_id,
 )
+from .compiler_words import (
+    CompilerWordDescriptor,
+    CompilerWordRegistry,
+    DEFAULT_COMPILER_WORDS,
+    compiler_word_descriptor_for_key,
+)
 from .instructions import (
     AssociatedDataSource,
     DEFAULT_INSTRUCTIONS,
@@ -44,7 +50,10 @@ __all__ = [
     "AssociatedDataSource",
     "CELL_SIZE",
     "COLON_THREAD_FAMILY",
+    "CompilerWordDescriptor",
+    "CompilerWordRegistry",
     "DEFAULT_INSTRUCTION_FAMILIES",
+    "DEFAULT_COMPILER_WORDS",
     "DEFAULT_INSTRUCTIONS",
     "DEFAULT_MEMORY_CELLS",
     "DEFAULT_STACK_CELLS",
@@ -77,6 +86,7 @@ __all__ = [
     "aligned_name_region_size",
     "aligned_name_region_size_ir",
     "align_up",
+    "compiler_word_descriptor_for_key",
     "family_for_handler_id",
     "instruction_descriptor_for_handler_id",
 ]
