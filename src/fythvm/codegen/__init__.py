@@ -12,6 +12,7 @@ from .joins import Join
 from .llvm import CompiledIRModule, compile_ir_module, configure_llvm
 from .dispatch import SwitchCaseSpec, SwitchDispatcher
 from .loops import ParamLoop
+from .return_stack import ReturnStackIR
 from .stack import (
     AbstractStackAccess,
     BoundStackAccess,
@@ -40,6 +41,7 @@ __all__ = [
     "Join",
     "ParamLoop",
     "PoppedPair",
+    "ReturnStackIR",
     "SharedExit",
     "StructField",
     "StructHandle",

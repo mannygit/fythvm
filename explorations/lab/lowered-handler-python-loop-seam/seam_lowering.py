@@ -10,6 +10,7 @@ from fythvm import dictionary
 from fythvm.codegen import (
     BoundStackAccess,
     CurrentWordThreadIR,
+    ReturnStackIR,
     StructViewStackAccess,
     ThreadCursorIR,
     ThreadJumpIR,
@@ -18,7 +19,6 @@ from fythvm.codegen import (
 from fythvm.codegen.llvm import compile_ir_module
 
 from seam_state import LoweredLoopState, LoweredLoopStateView, STATE_HANDLE
-from seam_return import ReturnStackIR
 
 
 I1 = ir.IntType(1)

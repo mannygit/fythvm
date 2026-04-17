@@ -13,6 +13,7 @@ from fythvm.codegen import (
     ContextStructStackAccess,
     Join,
     ParamLoop,
+    ReturnStackIR,
     SharedExit,
     StructField,
     StructHandle,
@@ -20,6 +21,7 @@ from fythvm.codegen import (
     SwitchDispatcher,
     ThreadCursorIR,
     ThreadJumpIR,
+    ThreadRefIR,
     compare_aligned_i32_regions,
     compile_ir_module,
     configure_llvm,
@@ -52,6 +54,15 @@ class TinyThreadState(ctypes.Structure):
         ("thread_length", ctypes.c_int32),
         ("current_word_thread_cells", ctypes.POINTER(ctypes.c_int32)),
         ("current_word_thread_length", ctypes.c_int32),
+    ]
+
+
+class TinyReturnState(ctypes.Structure):
+    _fields_ = [
+        ("return_thread_cells", ctypes.POINTER(ctypes.c_int32) * 4),
+        ("return_thread_length", ctypes.c_int32 * 4),
+        ("return_ip", ctypes.c_int32 * 4),
+        ("rsp", ctypes.c_int32),
     ]
 
 
@@ -720,3 +731,64 @@ def test_current_word_thread_ref_reads_cells_and_length_from_reified_state() -> 
 
     result = apply(ctypes.byref(state))
     assert result == 13
+
+
+def test_return_stack_ir_pushes_and_pops_frames_from_reified_state() -> None:
+    configure_llvm()
+
+    state_handle = StructHandle.from_ctypes("tiny return state", TinyReturnState)
+    module = ir.Module(name="return_stack_ir_test")
+    module.triple = binding.get_default_triple()
+
+    push_fn = ir.Function(
+        module,
+        ir.FunctionType(ir.VoidType(), [state_handle.ir_type.as_pointer(), I32.as_pointer(), I32, I32]),
+        name="push_frame",
+    )
+    builder = ir.IRBuilder(push_fn.append_basic_block("entry"))
+    state = state_handle.bind(builder, push_fn.args[0])
+    return_stack = ReturnStackIR(builder=builder, state=state)
+    return_stack.push_frame(
+        thread=ThreadRefIR(cells=push_fn.args[1], length=push_fn.args[2]),
+        return_ip=push_fn.args[3],
+    )
+    builder.ret_void()
+
+    pop_fn = ir.Function(module, ir.FunctionType(I32, [state_handle.ir_type.as_pointer()]), name="pop_frame")
+    builder = ir.IRBuilder(pop_fn.append_basic_block("entry"))
+    state = state_handle.bind(builder, pop_fn.args[0])
+    return_stack = ReturnStackIR(builder=builder, state=state)
+    thread, return_ip = return_stack.pop_frame()
+    first_cell_ptr = builder.gep(thread.cells, [I32(0)], inbounds=True, name="first_cell_ptr")
+    first_cell = builder.load(first_cell_ptr, name="first_cell")
+    encoded = builder.add(first_cell, thread.length, name="encoded_thread")
+    encoded = builder.add(encoded, return_ip, name="encoded_result")
+    builder.ret(encoded)
+
+    compiled = compile_ir_module(module)
+    push_frame = ctypes.CFUNCTYPE(
+        None,
+        ctypes.POINTER(TinyReturnState),
+        ctypes.POINTER(ctypes.c_int32),
+        ctypes.c_int32,
+        ctypes.c_int32,
+    )(compiled.function_address("push_frame"))
+    pop_frame = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.POINTER(TinyReturnState))(
+        compiled.function_address("pop_frame")
+    )
+
+    thread = (ctypes.c_int32 * 3)(10, 20, 30)
+    state = TinyReturnState()
+    state.rsp = 4
+
+    push_frame(ctypes.byref(state), ctypes.cast(thread, ctypes.POINTER(ctypes.c_int32)), 3, 7)
+    assert state.rsp == 3
+    assert ctypes.cast(state.return_thread_cells[3], ctypes.c_void_p).value == ctypes.cast(
+        thread, ctypes.c_void_p
+    ).value
+    assert state.return_thread_length[3] == 3
+    assert state.return_ip[3] == 7
+
+    result = pop_frame(ctypes.byref(state))
+    assert result == 20
+    assert state.rsp == 4
