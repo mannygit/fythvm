@@ -53,6 +53,7 @@ HandlerRequirements(
     min_return_stack_out_space=0,
     needs_thread_cursor=False,
     needs_thread_jump=False,
+    needs_execution_control=False,
     needs_current_xt=False,
     needs_return_stack=False,
     needs_input_source=False,
@@ -89,6 +90,9 @@ execution shapes are exercised.
     helper
 - `needs_thread_jump`
   - the handler may redirect thread position through a jump/control helper
+- `needs_execution_control`
+  - the handler needs an execution-control surface for local actions like halt or
+    return requests without owning the outer dispatch policy
 - `needs_current_xt`
   - the handler recovers word-local data via `current_xt -> DFA`
 - `needs_return_stack`
@@ -163,6 +167,13 @@ Examples:
     - `min_return_stack_in=1`
     - `needs_error_exit=True`
 
+- `HALT`
+  - family: `primitive-empty`
+  - associated-data source: `NONE`
+  - likely requirements:
+    - `needs_execution_control=True`
+    - `needs_error_exit=True`
+
 - `CREATE`
   - compiler/meta vocabulary example
   - likely requirements:
@@ -194,6 +205,9 @@ def lower_lit(builder, *, data_stack, thread_cursor, err):
     ...
 
 def lower_branch(builder, *, thread_cursor, thread_jump, err):
+    ...
+
+def op_halt_ir(builder, *, control, err):
     ...
 
 def handle_s_quote(*, source_cursor, thread_emitter, err):

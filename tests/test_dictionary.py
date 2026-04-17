@@ -142,6 +142,19 @@ def test_instruction_registry_exposes_return_stack_requirements() -> None:
     assert descriptor.requirements.kernel == "exit"
 
 
+def test_instruction_registry_exposes_halt_metadata() -> None:
+    descriptor = dictionary.instruction_descriptor_for_handler_id(dictionary.PrimitiveInstruction.HALT)
+
+    assert descriptor is not None
+    assert descriptor.family is dictionary.PRIMITIVE_EMPTY_FAMILY
+    assert descriptor.associated_data_source is dictionary.AssociatedDataSource.NONE
+    assert descriptor.requirements.needs_execution_control is True
+    assert descriptor.requirements.needs_return_stack is False
+    assert descriptor.requirements.needs_thread_cursor is False
+    assert descriptor.requirements.needs_error_exit is True
+    assert descriptor.requirements.kernel == "halt"
+
+
 def test_instruction_registry_exposes_compiler_and_input_requirements() -> None:
     create_descriptor = dictionary.instruction_descriptor_for_handler_id(dictionary.PrimitiveInstruction.CREATE)
     tick_descriptor = dictionary.instruction_descriptor_for_handler_id(dictionary.PrimitiveInstruction.TICK)

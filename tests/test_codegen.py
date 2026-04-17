@@ -63,6 +63,18 @@ class AlternatePairView(BoundStructView):
     right = StructField(1)
 
 
+class ReifiedContext(ctypes.Structure):
+    _fields_ = [
+        ("values", ctypes.c_int16 * 4),
+        ("sp", ctypes.c_int32),
+    ]
+
+
+class ReifiedContextView(BoundStructView):
+    values = StructField(0)
+    sp = StructField(1)
+
+
 def test_shared_exit_merges_status_and_value() -> None:
     configure_llvm()
 
@@ -150,6 +162,29 @@ def test_struct_handle_supports_named_field_access() -> None:
     compiled = compile_ir_module(module)
     sum_pair = ctypes.CFUNCTYPE(ctypes.c_longlong)(compiled.function_address("sum_pair"))
     assert sum_pair() == 40
+
+
+def test_struct_handle_can_reify_fixed_ctypes_layout() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="ctypes_reified_struct_handle")
+    module.triple = binding.get_default_triple()
+    handle = StructHandle.from_ctypes("reified context", ReifiedContext, view_type=ReifiedContextView)
+
+    expected_type = ir.LiteralStructType([ir.ArrayType(I16, 4), I32])
+    assert str(handle.ir_type) == str(expected_type)
+
+    instance = ReifiedContext((1, 2, 3, 4), 3)
+    global_var = handle.define_global_from_ctypes(module, "ctx_data", instance)
+
+    fn = ir.Function(module, ir.FunctionType(I32, []), name="read_sp")
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    view = handle.bind(builder, global_var)
+    builder.ret(view.sp.load())
+
+    compiled = compile_ir_module(module)
+    read_sp = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("read_sp"))
+    assert read_sp() == 3
 
 
 def test_bound_struct_field_can_bind_nested_struct_view() -> None:

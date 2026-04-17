@@ -88,6 +88,18 @@ close out. Keep the backlog small and explicit.
 
 ## Done
 
+- `lowered-handler-python-loop-seam`
+  - Title: Lowered handler Python loop seam
+  - Goal: Show the smallest useful seam where Python owns dispatch but one handler is
+    lowered and mutates shared host-visible state.
+  - Why it matters: The next phase of interpreter work needs a slow lowering path
+    that does not immediately collapse visibility into a native dispatch engine.
+  - Takeaway: A good first seam is to lower `HALT`, let native code set a halt bit in
+    shared state, and let the Python loop decide what that means after the native call
+    returns. Use `HandlerRequirements` to inject lowered op surfaces and let the
+    wrapper, not the local op body, own `ret`.
+  - Lab: `explorations/lab/lowered-handler-python-loop-seam/`
+
 - `handler-requirements-python-loop`
   - Title: HandlerRequirements-driven Python loop
   - Goal: Show a tiny Python interpreter loop wiring package metadata into

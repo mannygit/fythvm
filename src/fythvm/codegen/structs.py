@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import sys
 from collections.abc import Hashable
 from typing import ClassVar
 from dataclasses import dataclass
@@ -9,6 +11,9 @@ from dataclasses import dataclass
 from llvmlite import ir
 
 from .types import I32
+
+
+BYTEORDER = sys.byteorder
 
 
 @dataclass(frozen=True)
@@ -205,6 +210,50 @@ class StructHandle:
         )
 
     @classmethod
+    def from_ctypes(
+        cls,
+        label: str,
+        ctypes_cls: type[ctypes.Structure],
+        *,
+        view_type: type[BoundStructView] = BoundStructView,
+    ) -> "StructHandle":
+        if not issubclass(ctypes_cls, ctypes.Structure):
+            raise TypeError(f"expected ctypes.Structure subclass, got {ctypes_cls!r}")
+
+        fields: list[ir.Type] = []
+        current_offset = 0
+        for field_name, ctype, *rest in ctypes_cls._fields_:
+            if rest:
+                raise ValueError(f"bitfields are not supported by StructHandle.from_ctypes: {field_name}")
+
+            field_desc = getattr(ctypes_cls, field_name)
+            byte_offset = field_desc.offset
+            byte_size = ctypes.sizeof(ctype)
+
+            if byte_offset > current_offset:
+                pad_size = byte_offset - current_offset
+                fields.append(ir.ArrayType(ir.IntType(8), pad_size))
+                current_offset += pad_size
+            elif byte_offset < current_offset:
+                raise ValueError(
+                    f"overlapping or out-of-order ctypes field layout is unsupported: {field_name}"
+                )
+
+            fields.append(_ir_type_from_ctypes(ctype))
+            current_offset = byte_offset + byte_size
+
+        total_size = ctypes.sizeof(ctypes_cls)
+        if total_size > current_offset:
+            fields.append(ir.ArrayType(ir.IntType(8), total_size - current_offset))
+
+        packed = getattr(ctypes_cls, "_pack_", None) is not None
+        return cls(
+            label=label,
+            ir_type=ir.LiteralStructType(fields, packed=packed),
+            view_type=view_type,
+        )
+
+    @classmethod
     def identified(
         cls,
         label: str,
@@ -246,5 +295,110 @@ class StructHandle:
         global_var.initializer = self.constant(*values)
         return global_var
 
+    def constant_from_ctypes(self, instance: ctypes.Structure) -> ir.Constant:
+        if not isinstance(instance, ctypes.Structure):
+            raise TypeError(f"expected ctypes.Structure instance, got {instance!r}")
+
+        raw = bytes(ctypes.string_at(ctypes.addressof(instance), ctypes.sizeof(instance)))
+        values: list[ir.Constant] = []
+        offset = 0
+        for field_type in self.ir_type.elements:
+            byte_size = ctypes_type_size(field_type)
+            chunk = raw[offset : offset + byte_size]
+            values.append(_constant_from_bytes(field_type, chunk))
+            offset += byte_size
+        return ir.Constant(self.ir_type, values)
+
+    def define_global_from_ctypes(
+        self,
+        module: ir.Module,
+        name: str,
+        instance: ctypes.Structure,
+    ) -> ir.GlobalVariable:
+        global_var = ir.GlobalVariable(module, self.ir_type, name=name)
+        global_var.initializer = self.constant_from_ctypes(instance)
+        return global_var
+
     def bind(self, builder: ir.IRBuilder, struct_ptr: ir.Value) -> BoundStructView:
         return self.view_type(self, builder, struct_ptr)
+
+
+INTEGER_TYPE_CODES: set[str] = {
+    "?",
+    "b",
+    "B",
+    "h",
+    "H",
+    "i",
+    "I",
+    "l",
+    "L",
+    "q",
+    "Q",
+}
+
+
+def _ir_type_from_ctypes(ctype: object) -> ir.Type:
+    if isinstance(ctype, type) and issubclass(ctype, ctypes.Array):
+        return ir.ArrayType(_ir_type_from_ctypes(ctype._type_), ctype._length_)
+
+    if isinstance(ctype, type) and issubclass(ctype, ctypes.Structure):
+        return StructHandle.from_ctypes(ctype.__name__, ctype).ir_type
+
+    if isinstance(ctype, type) and issubclass(ctype, ctypes._Pointer):  # type: ignore[attr-defined]
+        return _ir_type_from_ctypes(ctype._type_).as_pointer()
+
+    if (
+        isinstance(ctype, type)
+        and issubclass(ctype, ctypes._SimpleCData)  # type: ignore[attr-defined]
+        and getattr(ctype, "_type_", None) in INTEGER_TYPE_CODES
+    ):
+        return ir.IntType(ctypes.sizeof(ctype) * 8)
+
+    raise ValueError(f"unsupported ctypes field type: {ctype!r}")
+
+
+def ctypes_type_size(ir_type: ir.Type) -> int:
+    if isinstance(ir_type, ir.IntType):
+        return ir_type.width // 8
+    if isinstance(ir_type, ir.ArrayType):
+        return ctypes_type_size(ir_type.element) * ir_type.count
+    if isinstance(ir_type, ir.LiteralStructType):
+        return sum(ctypes_type_size(element) for element in ir_type.elements)
+    if isinstance(ir_type, ir.PointerType):
+        return ctypes.sizeof(ctypes.c_void_p)
+    raise TypeError(f"unsupported IR type for ctypes constant materialization: {ir_type!r}")
+
+
+def _constant_from_bytes(ir_type: ir.Type, chunk: bytes) -> ir.Constant:
+    if isinstance(ir_type, ir.IntType):
+        return ir.Constant(ir_type, int.from_bytes(chunk, byteorder=BYTEORDER, signed=False))
+
+    if isinstance(ir_type, ir.ArrayType):
+        element_size = ctypes_type_size(ir_type.element)
+        if isinstance(ir_type.element, ir.IntType) and ir_type.element.width == 8:
+            return ir.Constant(ir_type, [ir.IntType(8)(byte) for byte in chunk])
+        return ir.Constant(
+            ir_type,
+            [
+                _constant_from_bytes(
+                    ir_type.element,
+                    chunk[index * element_size : (index + 1) * element_size],
+                )
+                for index in range(ir_type.count)
+            ],
+        )
+
+    if isinstance(ir_type, ir.LiteralStructType):
+        values: list[ir.Constant] = []
+        offset = 0
+        for element in ir_type.elements:
+            element_size = ctypes_type_size(element)
+            values.append(_constant_from_bytes(element, chunk[offset : offset + element_size]))
+            offset += element_size
+        return ir.Constant(ir_type, values)
+
+    if isinstance(ir_type, ir.PointerType):
+        return ir.Constant(ir_type, int.from_bytes(chunk, byteorder=BYTEORDER, signed=False))
+
+    raise TypeError(f"unsupported IR type for ctypes constant materialization: {ir_type!r}")

@@ -54,6 +54,7 @@ class HandlerRequirements:
     min_return_stack_out_space: int = 0
     needs_thread_cursor: bool = False
     needs_thread_jump: bool = False
+    needs_execution_control: bool = False
     needs_current_xt: bool = False
     needs_return_stack: bool = False
     needs_input_source: bool = False
@@ -161,6 +162,7 @@ class PrimitiveInstruction(IntEnum):
     ZBRANCH = 74
     LITSTRING = 75
     DOCOL = 76
+    HALT = 77
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +226,7 @@ def _req(
     min_return_stack_out_space: int = 0,
     needs_thread_cursor: bool = False,
     needs_thread_jump: bool = False,
+    needs_execution_control: bool = False,
     needs_current_xt: bool = False,
     needs_return_stack: bool = False,
     needs_input_source: bool = False,
@@ -242,6 +245,7 @@ def _req(
         min_return_stack_out_space=min_return_stack_out_space,
         needs_thread_cursor=needs_thread_cursor,
         needs_thread_jump=needs_thread_jump,
+        needs_execution_control=needs_execution_control,
         needs_current_xt=needs_current_xt,
         needs_return_stack=needs_return_stack,
         needs_input_source=needs_input_source,
@@ -420,6 +424,13 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
                 needs_return_stack=True,
                 kernel="enter_thread",
             ),
+        ),
+        int(PrimitiveInstruction.HALT): _descriptor(
+            PrimitiveInstruction.HALT,
+            "HALT",
+            InstructionCategory.DICTIONARY_COMPILER,
+            "Request that the current execution context halt.",
+            requirements=_req(needs_execution_control=True, kernel="halt"),
         ),
     }
 )

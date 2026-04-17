@@ -1,0 +1,7 @@
+slug = "lowered-handler-python-loop-seam"
+title = "Lowered handler Python loop seam"
+summary = "Keep dispatch in Python while lowering HALT into a tiny JITed handler whose local IR body gets injected surfaces from HandlerRequirements and returns through a wrapper-owned ret."
+status = "stable"
+tags = ["llvmlite", "jit", "python-loop", "handler", "seam", "ctypes"]
+run = "uv run python explorations/lab/lowered-handler-python-loop-seam/run.py"
+agent_authored = true
