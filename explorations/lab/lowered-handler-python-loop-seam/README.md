@@ -43,7 +43,7 @@ The lab is split by concern inside its directory:
 - `seam_thread.py`
   - ctypes thread-buffer helpers
 - `seam_return.py`
-  - lab-local return-frame storage helpers over shared state
+  - small host-side return-stack depth helper
 - `seam_report.py`
   - labeled output for scenarios
 - `run.py`
@@ -147,6 +147,10 @@ The important visible behavior is:
 - after the JIT call returns, Python sees `HALT_REQUESTED` set in shared state
 - the Python loop stops because of that state bit, not because the lowered function
   somehow owns the whole dispatch loop
+- the Python loop now applies fallthrough only when no lowered op requested an
+  exact next `ip`
+- `DOCOL`, `EXIT`, `BRANCH`, and taken `0BRANCH` now install exact destinations
+  directly rather than relying on a host-side `ip += 1` convention
 
 This lab explicitly demonstrates the first promoted lowering ingredients in one place:
 
@@ -164,7 +168,8 @@ If we want to start lowering very slowly, a good first seam is:
 - keep dispatch in Python
 - lower one handler at a time
 - let lowered code mutate shared state
-- let the Python loop interpret that state and remain in charge of control flow
+- let the Python loop interpret that state and remain in charge of fallthrough
+  versus exact-next-`ip` continuation
 
 This is especially clean for `HALT`, because the lowered handler can set a control bit
 and return without forcing arithmetic lowering, thread-cursor lowering, or a full
@@ -188,7 +193,8 @@ decision, while still staying far short of return-stack or `DOCOL` complexity.
 `DOCOL` is the next big seam because it finally exercises the other major metadata
 axis: `needs_current_xt` and `needs_return_stack`. The op body itself stays small, but
 shared state now has to carry enough information to enter a child thread and later let
-lowered `EXIT` restore the caller.
+lowered `EXIT` restore the caller. With explicit exact-`ip` control in shared state,
+those handlers no longer need a fake pre-increment sentinel like `ip = -1`.
 
 ## Non-Obvious Failure Modes
 

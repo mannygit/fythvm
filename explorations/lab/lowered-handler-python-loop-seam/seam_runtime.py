@@ -121,6 +121,10 @@ def halt_requested(state: LoweredLoopState) -> bool:
     return bool(int(state.halt_requested))
 
 
+def exact_ip_requested(state: LoweredLoopState) -> bool:
+    return bool(int(state.exact_ip_requested))
+
+
 def execute_scenario(
     scenario: Scenario,
     lowered_functions: dict[int, ctypes._CFuncPtr],  # type: ignore[attr-defined]
@@ -198,7 +202,10 @@ def execute_scenario(
 
         if halt_requested(state):
             break
-        state.ip = int(state.ip) + 1
+        if exact_ip_requested(state):
+            state.exact_ip_requested = 0
+        else:
+            state.ip = int(state.ip) + 1
 
     return ScenarioResult(
         final_stack=stack_snapshot(state),
@@ -256,4 +263,3 @@ def resolve_word_descriptor(
     if descriptor is None:
         raise RuntimeError(f"no descriptor for xt {xt}")
     return descriptor, descriptor.key
-

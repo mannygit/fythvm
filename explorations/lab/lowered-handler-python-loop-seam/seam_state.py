@@ -13,7 +13,8 @@ RETURN_STACK_CAPACITY = 8
 class LoweredLoopState(ctypes.Structure):
     _fields_ = [
         ("halt_requested", ctypes.c_uint32, 1),
-        ("_reserved_flags", ctypes.c_uint32, 31),
+        ("exact_ip_requested", ctypes.c_uint32, 1),
+        ("_reserved_flags", ctypes.c_uint32, 30),
         ("ip", ctypes.c_int32),
         ("current_xt", ctypes.c_int32),
         ("thread_cells", ctypes.POINTER(ctypes.c_int32)),

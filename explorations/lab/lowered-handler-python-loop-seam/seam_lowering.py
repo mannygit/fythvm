@@ -13,7 +13,6 @@ from fythvm.codegen import (
     ReturnStackIR,
     StructViewStackAccess,
     ThreadCursorIR,
-    ThreadJumpIR,
     ThreadRefIR,
 )
 from fythvm.codegen.llvm import compile_ir_module
@@ -24,31 +23,27 @@ from seam_state import LoweredLoopState, LoweredLoopStateView, STATE_HANDLE
 I1 = ir.IntType(1)
 I32 = ir.IntType(32)
 LoweredOp = Callable[..., None]
-HALT_REQUESTED_BIT = I1(1)
-ENTRY_IP_BEFORE_HOST_ADVANCE = I32(-1)
-RETURN_IP_BEFORE_HOST_ADVANCE_DELTA = I32(1)
+TRUE_BIT = I1(1)
+FALSE_BIT = I1(0)
 
 
 @dataclass(frozen=True)
 class LoweredExecutionControlIR:
     """Execution-control helper injected into lowered op bodies.
 
-    This seam still lets the Python host loop apply the normal post-step
-    ``ip += 1`` after a handler returns. Entering a child thread therefore
-    installs ``ENTRY_IP_BEFORE_HOST_ADVANCE`` rather than literal thread index
-    ``0`` so the next host-side increment lands on the first child-thread cell.
-
-    That sentinel is a seam artifact, not the semantic meaning of `DOCOL`.
-    The real local effect is "switch to the child thread so execution resumes at
-    its first word." A different outer-loop contract could install `ip = 0`
-    directly and remove this pre-increment convention.
+    Normal handlers still rely on host-side fallthrough. Control-shaping handlers
+    can instead install an exact next ip and set ``exact_ip_requested`` so the
+    host loop skips its usual increment for that step.
     """
 
     builder: ir.IRBuilder
     state: LoweredLoopStateView
 
     def request_halt(self) -> None:
-        self.state.halt_requested.store(HALT_REQUESTED_BIT)
+        self.state.halt_requested.store(TRUE_BIT)
+
+    def request_exact_ip(self) -> None:
+        self.state.exact_ip_requested.store(TRUE_BIT)
 
     def enter_thread(self, *, thread: ThreadRefIR, return_stack: ReturnStackIR) -> None:
         current_thread = ThreadRefIR(
@@ -60,17 +55,47 @@ class LoweredExecutionControlIR:
         return_stack.push_frame(thread=current_thread, return_ip=return_ip)
         self.state.thread_cells.store(thread.cells)
         self.state.thread_length.store(thread.length)
-        self.state.ip.store(ENTRY_IP_BEFORE_HOST_ADVANCE)
+        self.state.ip.store(I32(0))
+        self.request_exact_ip()
 
     def return_to_thread(self, *, thread: ThreadRefIR, return_ip: ir.Value) -> None:
         self.state.thread_cells.store(thread.cells)
         self.state.thread_length.store(thread.length)
-        resume_ip = self.builder.sub(
-            return_ip,
-            RETURN_IP_BEFORE_HOST_ADVANCE_DELTA,
-            name="resume_ip_before_host_advance",
+        self.state.ip.store(return_ip)
+        self.request_exact_ip()
+
+
+@dataclass(frozen=True)
+class SeamThreadJumpIR:
+    """Thread-jump helper that can suppress host fallthrough when needed."""
+
+    builder: ir.IRBuilder
+    state: LoweredLoopStateView
+    ip_field_name: str = "ip"
+
+    def branch_relative(self, offset: ir.Value) -> None:
+        ip_field = getattr(self.state, self.ip_field_name)
+        current_ip = ip_field.load(name="branch_operand_ip")
+        offset_base_ip = self.builder.add(current_ip, offset, name="branch_offset_base_ip")
+        target_ip = self.builder.add(offset_base_ip, I32(1), name="branch_target_ip")
+        ip_field.store(target_ip)
+        self.state.exact_ip_requested.store(TRUE_BIT)
+
+    def branch_if_zero(self, value: ir.Value, offset: ir.Value) -> None:
+        ip_field = getattr(self.state, self.ip_field_name)
+        current_ip = ip_field.load(name="zbranch_operand_ip")
+        offset_base_ip = self.builder.add(current_ip, offset, name="zbranch_offset_base_ip")
+        target_ip = self.builder.add(offset_base_ip, I32(1), name="zbranch_target_ip")
+        should_branch = self.builder.icmp_signed("==", value, I32(0), name="zbranch_is_zero")
+        next_ip = self.builder.select(should_branch, target_ip, current_ip, name="zbranch_next_ip")
+        ip_field.store(next_ip)
+        exact_ip_requested = self.builder.select(
+            should_branch,
+            TRUE_BIT,
+            FALSE_BIT,
+            name="zbranch_exact_ip_requested",
         )
-        self.state.ip.store(resume_ip)
+        self.state.exact_ip_requested.store(exact_ip_requested)
 
 
 @dataclass(frozen=True)
@@ -107,7 +132,7 @@ def injected_ir_resources(
     if requirements.needs_thread_cursor:
         kwargs["thread_cursor"] = ThreadCursorIR(builder=builder, state=state)
     if requirements.needs_thread_jump:
-        kwargs["thread_jump"] = ThreadJumpIR(builder=builder, state=state)
+        kwargs["thread_jump"] = SeamThreadJumpIR(builder=builder, state=state)
     if requirements.needs_current_xt:
         kwargs["current_word_thread"] = CurrentWordThreadIR(state=state)
     if requirements.needs_return_stack:
@@ -167,7 +192,7 @@ def op_branch_ir(
     builder: ir.IRBuilder,
     *,
     thread_cursor: ThreadCursorIR,
-    thread_jump: ThreadJumpIR,
+    thread_jump: SeamThreadJumpIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit BRANCH's local IR effect without owning wrapper termination."""
@@ -183,7 +208,7 @@ def op_zbranch_ir(
     *,
     data_stack: BoundStackAccess,
     thread_cursor: ThreadCursorIR,
-    thread_jump: ThreadJumpIR,
+    thread_jump: SeamThreadJumpIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit 0BRANCH's local IR effect without owning wrapper termination."""
