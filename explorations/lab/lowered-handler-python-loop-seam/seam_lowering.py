@@ -24,6 +24,7 @@ I32 = ir.IntType(32)
 LoweredOp = Callable[..., None]
 TRUE_BIT = I1(1)
 FALSE_BIT = I1(0)
+VOID = ir.VoidType()
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,14 @@ class LoweredHandlerSpec:
     function_name: str
     op: LoweredOp
     note: str
+
+
+def lowered_fetch_function_name() -> str:
+    return "lowered_fetch"
+
+
+def lowered_dispatch_function_name() -> str:
+    return "lowered_dispatch"
 
 
 @dataclass(frozen=True)
@@ -339,24 +348,114 @@ def define_lowered_handler(module: ir.Module, spec: LoweredHandlerSpec) -> None:
     builder.ret_void()
 
 
+def define_lowered_fetch(module: ir.Module) -> None:
+    state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
+    function = ir.Function(
+        module,
+        ir.FunctionType(VOID, [state_ptr_type]),
+        name=lowered_fetch_function_name(),
+    )
+    builder = ir.IRBuilder(function.append_basic_block(name="entry"))
+    state_ptr = function.args[0]
+    state_ptr.name = "state"
+    state = STATE_HANDLE.bind(builder, state_ptr)
+
+    current_ip = state.ip.load(name="fetch_ip")
+    thread_cells = state.thread_cells.load(name="fetch_thread_cells")
+    xt_ptr = builder.gep(thread_cells, [current_ip], inbounds=True, name="fetch_xt_ptr")
+    current_xt = builder.load(xt_ptr, name="fetched_xt")
+    state.current_xt.store(current_xt)
+    builder.ret_void()
+
+
+def define_lowered_dispatch(module: ir.Module) -> None:
+    state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
+    function = ir.Function(
+        module,
+        ir.FunctionType(VOID, [state_ptr_type]),
+        name=lowered_dispatch_function_name(),
+    )
+    builder = ir.IRBuilder(function.append_basic_block(name="entry"))
+    state_ptr = function.args[0]
+    state_ptr.name = "state"
+    state = STATE_HANDLE.bind(builder, state_ptr)
+
+    current_xt = state.current_xt.load(name="dispatch_current_xt")
+    dictionary_memory = state.dictionary_memory.load(name="dispatch_dictionary_memory")
+    dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
+    found_word_index = dictionary_ir.find_word_by_cfa(current_xt)
+    found_custom_word = builder.icmp_signed(
+        "!=",
+        found_word_index,
+        I32(dictionary.NULL_INDEX),
+        name="dispatch_found_custom_word",
+    )
+    custom_block = function.append_basic_block("dispatch_custom_word")
+    primitive_block = function.append_basic_block("dispatch_primitive")
+    resolved_block = function.append_basic_block("dispatch_resolved")
+    builder.cbranch(found_custom_word, custom_block, primitive_block)
+
+    with builder.goto_block(custom_block):
+        custom_word = dictionary_ir.word(found_word_index)
+        custom_code_field = custom_word.code_field.bind(dictionary_ir.code_field_handle)
+        custom_handler_id = builder.zext(
+            custom_code_field.handler_id.load(name="dispatch_custom_handler_id_i7"),
+            I32,
+            name="dispatch_custom_handler_id",
+        )
+        builder.branch(resolved_block)
+
+    with builder.goto_block(primitive_block):
+        primitive_handler_id = current_xt
+        builder.branch(resolved_block)
+
+    builder.position_at_end(resolved_block)
+    resolved_handler_id = builder.phi(I32, name="dispatch_handler_id")
+    resolved_handler_id.add_incoming(custom_handler_id, custom_block)
+    resolved_handler_id.add_incoming(primitive_handler_id, primitive_block)
+
+    default_block = function.append_basic_block("unsupported")
+    exit_block = function.append_basic_block("exit")
+    dispatcher = builder.switch(resolved_handler_id, default_block)
+    for spec in LOWERED_HANDLER_SPECS.values():
+        case_block = function.append_basic_block(f"case_{spec.function_name}")
+        dispatcher.add_case(I32(spec.handler_id), case_block)
+        with builder.goto_block(case_block):
+            builder.call(module.get_global(spec.function_name), [state_ptr])
+            builder.branch(exit_block)
+
+    with builder.goto_block(default_block):
+        LoweredExecutionControlIR(builder=builder, state=state).request_halt()
+        builder.branch(exit_block)
+
+    builder.position_at_end(exit_block)
+    builder.ret_void()
+
+
 def build_lowered_runtime() -> tuple[
     ir.Module,
     object,
-    dict[int, ctypes._CFuncPtr],  # type: ignore[attr-defined]
+    ctypes._CFuncPtr,  # type: ignore[attr-defined]
+    ctypes._CFuncPtr,  # type: ignore[attr-defined]
     dict[int, int],
 ]:
     module = ir.Module(name="lowered_handler_seam")
     for spec in LOWERED_HANDLER_SPECS.values():
         define_lowered_handler(module, spec)
+    define_lowered_fetch(module)
+    define_lowered_dispatch(module)
 
     compiled = compile_ir_module(module)
-    lowered_functions: dict[int, ctypes._CFuncPtr] = {}  # type: ignore[attr-defined]
     lowered_addresses: dict[int, int] = {}
     for handler_id, spec in LOWERED_HANDLER_SPECS.items():
         address = compiled.function_address(spec.function_name)
         lowered_addresses[handler_id] = address
-        lowered_functions[handler_id] = ctypes.CFUNCTYPE(
-            None,
-            ctypes.POINTER(LoweredLoopState),
-        )(address)
-    return module, compiled, lowered_functions, lowered_addresses
+    lowered_fetch = ctypes.CFUNCTYPE(
+        None,
+        ctypes.POINTER(LoweredLoopState),
+    )(compiled.function_address(lowered_fetch_function_name()))
+    lowered_dispatch = ctypes.CFUNCTYPE(
+        None,
+        ctypes.POINTER(LoweredLoopState),
+    )(compiled.function_address(lowered_dispatch_function_name()))
+    return module, compiled, lowered_fetch, lowered_dispatch, lowered_addresses

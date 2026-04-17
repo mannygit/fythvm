@@ -200,6 +200,41 @@ class DictionaryIR:
             result.add_incoming(current_word, found_block)
             return result
 
+    def find_word_by_cfa(self, cfa_index: ir.Value) -> ir.Value:
+        """Find the newest dictionary word whose CFA cell index matches ``cfa_index``."""
+
+        latest = self.latest_index()
+        loop = ParamLoop(self.builder, "find_word_by_cfa", [("current", I32)])
+        found_block = self.builder.append_basic_block("find_word_by_cfa.found")
+        continue_block = self.builder.append_basic_block("find_word_by_cfa.continue")
+        loop.begin(latest)
+        current_word: ir.Value | None = None
+
+        with loop.head() as (current,):
+            current_word = current
+            active = self.builder.icmp_signed("!=", current, I32(NULL_INDEX), name="find_word_by_cfa_active")
+            self.builder.cbranch(active, loop.body_block, loop.exit_block)
+
+        with loop.body():
+            current_cfa = self.builder.add(current, I32(1), name="current_cfa_index")
+            matched = self.builder.icmp_signed("==", current_cfa, cfa_index, name="find_word_by_cfa_matched")
+            self.builder.cbranch(matched, found_block, continue_block)
+
+        with self.builder.goto_block(found_block):
+            self.builder.branch(loop.exit_block)
+
+        with self.builder.goto_block(continue_block):
+            word = self.word(current)
+            next_link = word.link.load(name="find_word_by_cfa_next_link")
+            loop.continue_from_here(next_link)
+
+        with loop.exit():
+            assert current_word is not None
+            result = self.builder.phi(I32, name="found_word_by_cfa_index")
+            result.add_incoming(I32(NULL_INDEX), loop.head_block)
+            result.add_incoming(current_word, found_block)
+            return result
+
     def _copy_bytes(self, dest_ptr: ir.Value, src_ptr: ir.Value, length: ir.Value, *, loop_name: str) -> None:
         loop = ParamLoop(self.builder, loop_name, [("i", I32)])
         loop.begin(I32(0))

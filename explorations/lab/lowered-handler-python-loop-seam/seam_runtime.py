@@ -182,7 +182,8 @@ def exact_ip_requested(state: LoweredLoopState) -> bool:
 
 def execute_scenario(
     scenario: Scenario,
-    lowered_functions: dict[int, ctypes._CFuncPtr],  # type: ignore[attr-defined]
+    lowered_fetch: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+    lowered_dispatch: ctypes._CFuncPtr,  # type: ignore[attr-defined]
 ) -> ScenarioResult:
     dictionary_runtime, resolved_words, resolved_entry_thread = materialize_dictionary_words(scenario)
     state = LoweredLoopState()
@@ -213,8 +214,8 @@ def execute_scenario(
         if ip >= len(current_record.thread):
             raise RuntimeError(f"{current_record.name} stepped past end without HALT or EXIT")
 
-        xt = int(current_record.thread[ip])
-        state.current_xt = xt
+        lowered_fetch(state_ptr)
+        xt = int(state.current_xt)
         descriptor, word_name = resolve_word_descriptor(xt, custom_word_map)
 
         if xt in custom_word_map:
@@ -230,7 +231,7 @@ def execute_scenario(
 
         if descriptor.handler_id in LOWERED_HANDLER_SPECS:
             backend = "jit"
-            lowered_functions[descriptor.handler_id](state_ptr)
+            lowered_dispatch(state_ptr)
             note = LOWERED_HANDLER_SPECS[descriptor.handler_id].note
         else:
             raise RuntimeError(f"unsupported handler in seam lab: {descriptor.key}")

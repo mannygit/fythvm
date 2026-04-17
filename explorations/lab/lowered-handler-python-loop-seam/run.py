@@ -12,7 +12,7 @@ from seam_runtime import assert_result_matches, execute_scenario
 
 def main() -> None:
     configure_llvm()
-    _module, compiled, lowered_functions, lowered_addresses = build_lowered_runtime()
+    _module, compiled, lowered_fetch, lowered_dispatch, lowered_addresses = build_lowered_runtime()
 
     print("== Question ==")
     print("What is the smallest useful seam between a Python dispatch loop and a gradually lowered handler set?")
@@ -25,7 +25,7 @@ def main() -> None:
     print()
 
     for scenario in SCENARIOS:
-        result = execute_scenario(scenario, lowered_functions)
+        result = execute_scenario(scenario, lowered_fetch, lowered_dispatch)
         assert_result_matches(scenario, result)
         print_scenario(scenario, result, lowered_addresses=lowered_addresses)
 

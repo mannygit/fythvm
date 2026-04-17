@@ -139,3 +139,33 @@ def test_dictionary_ir_resolves_thread_cells_pointer_from_cfa() -> None:
     )(compiled.function_address("read_first_thread_cell"))
 
     assert read_first_thread_cell(ctypes.byref(runtime.memory), word.cfa_index) == 101
+
+
+def test_dictionary_ir_find_word_by_cfa_prefers_real_dictionary_word() -> None:
+    configure_llvm()
+
+    runtime = DictionaryRuntime()
+    newer = runtime.create_word("sum23", handler_id=76)
+    older = runtime.create_word("helper", handler_id=15)
+
+    module = ir.Module(name="dictionary_ir_find_word_by_cfa")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(
+        module,
+        ir.FunctionType(I32, [dictionary_memory_handle().ir_type.as_pointer(), I32]),
+        name="find_word_by_cfa",
+    )
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    dictionary = DictionaryIR(builder, fn.args[0])
+    builder.ret(dictionary.find_word_by_cfa(fn.args[1]))
+
+    compiled = compile_ir_module(module)
+    find_word_by_cfa = ctypes.CFUNCTYPE(
+        ctypes.c_int32,
+        ctypes.POINTER(DictionaryMemory),
+        ctypes.c_int32,
+    )(compiled.function_address("find_word_by_cfa"))
+
+    assert find_word_by_cfa(ctypes.byref(runtime.memory), older.cfa_index) == older.index
+    assert find_word_by_cfa(ctypes.byref(runtime.memory), newer.cfa_index) == newer.index
+    assert find_word_by_cfa(ctypes.byref(runtime.memory), 999) == NULL_INDEX

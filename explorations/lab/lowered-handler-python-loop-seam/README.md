@@ -69,8 +69,10 @@ The lab is split by concern inside its directory:
 - `run.py`
   - the small orchestrating entrypoint
 
-`HALT`, `LIT`, `ADD`, `BRANCH`, `0BRANCH`, and `DOCOL` are now lowered. Their generated wrapper functions take a pointer to
-that shared state and return normally to Python.
+`HALT`, `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `EXIT` are now lowered. A
+small lowered fetch function and a small lowered dispatcher now sit beside those
+handler wrappers, and all of them take a pointer to that shared state and return
+normally to Python.
 
 The important wiring detail is that `HandlerRequirements` is used for injected
 surfaces, not backend policy:
@@ -113,6 +115,12 @@ The lab now also has the next seam surfaces ready for threaded entry:
 
 Backend choice stays lab-local, and the active threaded-control scenarios now route
 through lowered wrappers all the way through `EXIT`.
+
+Python no longer fetches the current cell or chooses the handler directly:
+
+- lowered fetch reads `thread_cells[ip]` and stores `current_xt`
+- lowered dispatch resolves custom-word CFAs through the dictionary first
+- then it falls back to primitive handler ids and calls the already-lowered handler body
 
 That means the seam is intentionally narrow:
 
@@ -195,6 +203,10 @@ If we want to start lowering very slowly, a good first seam is:
 This is especially clean for `HALT`, because the lowered handler can set a control bit
 and return without forcing arithmetic lowering, thread-cursor lowering, or a full
 native dispatch engine.
+
+Lowered fetch and lowered dispatch are the next seam step after that: they take away
+the host loop's direct knowledge of `thread_cells[ip]` and of "which lowered handler
+does this `xt` mean right now?" without yet forcing full native loop ownership.
 
 `LIT` proves the first real operand path: the op body reads one inline cell through a
 thread cursor and pushes it through the promoted stack view without owning wrapper
