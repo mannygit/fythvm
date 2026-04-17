@@ -52,7 +52,8 @@ class HandlerRequirements:
     min_data_stack_out_space: int = 0
     min_return_stack_in: int = 0
     min_return_stack_out_space: int = 0
-    needs_ip: bool = False
+    needs_thread_cursor: bool = False
+    needs_thread_jump: bool = False
     needs_current_xt: bool = False
     needs_return_stack: bool = False
     needs_input_source: bool = False
@@ -218,7 +219,8 @@ def _req(
     min_data_stack_out_space: int = 0,
     min_return_stack_in: int = 0,
     min_return_stack_out_space: int = 0,
-    needs_ip: bool = False,
+    needs_thread_cursor: bool = False,
+    needs_thread_jump: bool = False,
     needs_current_xt: bool = False,
     needs_return_stack: bool = False,
     needs_input_source: bool = False,
@@ -232,7 +234,8 @@ def _req(
         min_data_stack_out_space=min_data_stack_out_space,
         min_return_stack_in=min_return_stack_in,
         min_return_stack_out_space=min_return_stack_out_space,
-        needs_ip=needs_ip,
+        needs_thread_cursor=needs_thread_cursor,
+        needs_thread_jump=needs_thread_jump,
         needs_current_xt=needs_current_xt,
         needs_return_stack=needs_return_stack,
         needs_input_source=needs_input_source,
@@ -351,7 +354,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
             associated_data_source=AssociatedDataSource.INLINE_THREAD,
             requirements=_req(
                 min_data_stack_out_space=1,
-                needs_ip=True,
+                needs_thread_cursor=True,
                 kernel="inline_literal",
             ),
         ),
@@ -363,7 +366,8 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
             family=PRIMITIVE_INLINE_OPERAND_FAMILY,
             associated_data_source=AssociatedDataSource.INLINE_THREAD,
             requirements=_req(
-                needs_ip=True,
+                needs_thread_cursor=True,
+                needs_thread_jump=True,
                 kernel="inline_branch",
             ),
         ),
@@ -376,7 +380,8 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
             associated_data_source=AssociatedDataSource.INLINE_THREAD,
             requirements=_req(
                 min_data_stack_in=1,
-                needs_ip=True,
+                needs_thread_cursor=True,
+                needs_thread_jump=True,
                 kernel="inline_zero_branch",
             ),
         ),
@@ -389,7 +394,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
             associated_data_source=AssociatedDataSource.INLINE_THREAD,
             requirements=_req(
                 min_data_stack_out_space=2,
-                needs_ip=True,
+                needs_thread_cursor=True,
                 kernel="inline_string_literal",
             ),
         ),

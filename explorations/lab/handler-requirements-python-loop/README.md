@@ -32,6 +32,9 @@ It treats those as guidance for preflight checks and resource injection:
 - thread-cursor and error-exit injection come from `HandlerRequirements`
 - `+` lowers through a local `binary_reduce(...)` kernel instead of spelling out raw
   list mutation inline
+- even the local kernel now goes through `stack_pop(...)`, `stack_push(...)`, and
+  `stack_peek(...)` helpers so the lab does not teach Python list methods as the
+  execution contract
 
 This is a pure Python proof of shape. It does not try to be the package runtime and
 it does not lower anything through llvmlite.
@@ -55,6 +58,15 @@ The output prints two scenarios:
 
 - one successful thread: `LIT 2 LIT 3 + EXIT`
 - one failing thread: `LIT 2 + EXIT`
+- one unconditional branch skip: `LIT 7 BRANCH 2 LIT 999 EXIT`
+- one conditional branch skip: `LIT 0 0BRANCH 2 LIT 999 EXIT`
+
+Each scenario now carries explicit expected outcomes:
+
+- expected final stack
+- expected halted/error status
+- expected final `ip`
+- expected executed word trace
 
 For each step the lab shows:
 
@@ -66,11 +78,18 @@ For each step the lab shows:
 - the stack before and after the step
 - the concrete injected resources used for that handler call
 
+It also asserts the final result before printing the trace, so the lab is not relying
+on manual eyeballing alone anymore.
+
 That makes the current metadata story visible in one place:
 
 - `LIT` is `primitive-inline-operand` and gets `data_stack`, `thread_cursor`, and
   `err`
 - `+` is `primitive-empty` and gets `data_stack` and `err`
+- `BRANCH` is `primitive-inline-operand` and gets `thread_cursor`, `thread_jump`,
+  and `err`
+- `0BRANCH` is `primitive-inline-operand` and gets `data_stack`, `thread_cursor`,
+  `thread_jump`, and `err`
 - `EXIT` is `primitive-empty` and gets `control` plus `err`
 
 ## Pattern / Takeaway
@@ -91,13 +110,15 @@ The key boundary is still the same:
 - the loop/dispatcher owns control flow
 - the handler body owns only the local effect
 - reusable stack-shape kernels sit between handler meaning and storage details
+- one scenario spec plus one structured result object gives us a reusable validation
+  harness for future ctypes or lowered backends
 
 ## Non-Obvious Failure Modes
 
-One easy mistake is to assume `HandlerRequirements` alone explains every injected
-resource. In this lab it does not. The thread cursor is injected because the word's
-`associated_data_source` is `INLINE_THREAD`, not because `HandlerRequirements`
-contains a separate `needs_thread_cursor` flag yet.
+One easy mistake is to assume `associated_data_source` and `HandlerRequirements` are
+competing ways to say the same thing. In this lab they are not. `associated_data_source`
+still names the runtime data source, while `HandlerRequirements` now explicitly asks
+for `thread_cursor` and `thread_jump` capabilities where needed.
 
 Another easy mistake is to read `min_data_stack_out_space` as the exact net stack
 effect. It is better understood here as a conservative preflight requirement for the
@@ -110,10 +131,10 @@ This lab keeps `+` routed through a local `binary_reduce(...)` kernel so the vis
 shape stays "binary reducer over an abstract stack surface" rather than "Python list
 is the contract."
 
-This lab also exposed that a raw `needs_ip` flag is too coarse. `LIT` does not want
-to return a new `ip`; it wants a thread-local cursor capability that can consume the
-next inline cell while the loop still owns dispatch. That likely generalizes into a
-future split between cursor-like and jump-like thread capabilities.
+This lab also exposed that a raw `needs_ip` flag is too coarse. `LIT` wants a
+thread-local cursor capability. `BRANCH` and `0BRANCH` want both a cursor and a jump
+capability. That is a better fit than pretending every inline-thread word just wants
+the same raw `ip` integer.
 
 It is also easy to overread the result and assume this means the final package runtime
 should just become a Python dispatch loop. That is not the point. The point is to
@@ -128,6 +149,7 @@ Use this pattern when:
 - you want to inspect injected resources and preflight checks in a human-readable way
 - you need a tiny execution-shaped artifact to discuss `LIT` versus `+` versus
   `EXIT`
+- you want to see cursor-style and jump-style thread capabilities in the same loop
 - you want a safe place to iterate on handler surfaces before committing to llvmlite
 
 ## Avoid When
@@ -148,12 +170,9 @@ Those need separate labs.
 
 - Should `associated_data_source` become first-class enough that the injection layer
   never has to inspect family metadata?
-- Does thread-position access deserve explicit requirement flags such as
-  `needs_thread_cursor` and `needs_thread_jump`, or is the associated-data source the
-  right place to infer some of that?
 - What is the smallest useful next extension:
-  - `BRANCH`
-  - `0BRANCH`
   - `DOCOL`
+- Should `associated_data_source` remain purely semantic, or should some injections
+  continue to be inferred from it alongside explicit requirement flags?
 - At what point does this Python shape want a second variant that mirrors future
   lowering helpers more directly?

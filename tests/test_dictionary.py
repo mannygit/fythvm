@@ -167,7 +167,8 @@ def test_instruction_registry_exposes_lit_inline_operand_metadata() -> None:
     assert descriptor.associated_data_source is dictionary.AssociatedDataSource.INLINE_THREAD
     assert descriptor.requirements.min_data_stack_in == 0
     assert descriptor.requirements.min_data_stack_out_space == 1
-    assert descriptor.requirements.needs_ip is True
+    assert descriptor.requirements.needs_thread_cursor is True
+    assert descriptor.requirements.needs_thread_jump is False
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "inline_literal"
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.LIT)) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
@@ -180,7 +181,8 @@ def test_instruction_registry_exposes_branch_inline_operand_metadata() -> None:
     assert descriptor.family is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
     assert descriptor.associated_data_source is dictionary.AssociatedDataSource.INLINE_THREAD
     assert descriptor.requirements.min_data_stack_in == 0
-    assert descriptor.requirements.needs_ip is True
+    assert descriptor.requirements.needs_thread_cursor is True
+    assert descriptor.requirements.needs_thread_jump is True
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "inline_branch"
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.BRANCH)) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
@@ -194,7 +196,8 @@ def test_instruction_registry_exposes_zero_branch_inline_operand_metadata() -> N
     assert descriptor.family is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
     assert descriptor.associated_data_source is dictionary.AssociatedDataSource.INLINE_THREAD
     assert descriptor.requirements.min_data_stack_in == 1
-    assert descriptor.requirements.needs_ip is True
+    assert descriptor.requirements.needs_thread_cursor is True
+    assert descriptor.requirements.needs_thread_jump is True
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "inline_zero_branch"
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.ZBRANCH)) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
@@ -207,7 +210,8 @@ def test_instruction_registry_exposes_litstring_inline_operand_metadata() -> Non
     assert descriptor.family is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
     assert descriptor.associated_data_source is dictionary.AssociatedDataSource.INLINE_THREAD
     assert descriptor.requirements.min_data_stack_out_space == 2
-    assert descriptor.requirements.needs_ip is True
+    assert descriptor.requirements.needs_thread_cursor is True
+    assert descriptor.requirements.needs_thread_jump is False
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "inline_string_literal"
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.LITSTRING)) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY

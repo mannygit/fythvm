@@ -51,7 +51,8 @@ HandlerRequirements(
     min_data_stack_out_space=0,
     min_return_stack_in=0,
     min_return_stack_out_space=0,
-    needs_ip=False,
+    needs_thread_cursor=False,
+    needs_thread_jump=False,
     needs_current_xt=False,
     needs_return_stack=False,
     needs_input_source=False,
@@ -62,7 +63,8 @@ HandlerRequirements(
 )
 ```
 
-This is still a design sketch, not yet package code.
+This now exists in package code, though the exact field set may still evolve as more
+execution shapes are exercised.
 
 ## Canonical Requirement Fields
 
@@ -79,10 +81,11 @@ This is still a design sketch, not yet package code.
 
 ### Injected Runtime Resources
 
-- `needs_ip`
-  - current code spelling for "this handler needs thread-position access"
-  - this is likely too coarse long-term and probably wants to split into cursor-like
-    and jump-like thread capabilities
+- `needs_thread_cursor`
+  - the handler consumes inline data from the current thread through a cursor-like
+    helper
+- `needs_thread_jump`
+  - the handler may redirect thread position through a jump/control helper
 - `needs_current_xt`
   - the handler recovers word-local data via `current_xt -> DFA`
 - `needs_return_stack`
@@ -133,8 +136,15 @@ Examples:
   - likely requirements:
     - `min_data_stack_in=0`
     - `min_data_stack_out_space=1`
-    - `needs_ip=True` for now, though the real need is closer to a thread-cursor
-      capability than a raw `ip` integer
+    - `needs_thread_cursor=True`
+    - `needs_error_exit=True`
+
+- `BRANCH`
+  - family: `primitive-inline-operand`
+  - associated-data source: `INLINE_THREAD`
+  - likely requirements:
+    - `needs_thread_cursor=True`
+    - `needs_thread_jump=True`
     - `needs_error_exit=True`
 
 - `EXIT`
@@ -167,6 +177,9 @@ Example shape:
 ```python
 def lower_lit(builder, *, data_stack, thread_cursor, err):
     ...
+
+def lower_branch(builder, *, thread_cursor, thread_jump, err):
+    ...
 ```
 
 Important invariants:
@@ -174,8 +187,9 @@ Important invariants:
 - resources are injected because they were declared
 - positional ABI differences are not used to distinguish handlers
 - continuation remains an outer framework responsibility
-- inline-operand handlers should consume thread data through a helper/cursor surface,
-  not by returning a synthetic `next_ip`
+- inline-operand handlers should consume thread data through a cursor surface and
+  redirect control only through an injected jump/control surface, not by returning a
+  synthetic `next_ip`
 
 ## Kernels And Shared Lowering Shapes
 
@@ -218,6 +232,5 @@ The remaining open points here are intentionally narrow.
 - the minimal stable field set for package code
 - the first kernel ids/lookups to standardize
 - the exact injection convention for lowering functions
-- whether `needs_ip` should split into thread-cursor and thread-jump capabilities
 - how preflight checks, wrong-mode exits, and error exits are factored around handler
   bodies
