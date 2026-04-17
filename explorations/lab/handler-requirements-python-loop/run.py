@@ -15,13 +15,15 @@ HandlerFn = Callable[..., str]
 class Scenario:
     name: str
     text: str
-    thread: tuple[int, ...]
+    thread: tuple[int, ...] | None
     expected_decompile: tuple[str, ...]
     expected_stack: tuple[StackValue, ...]
     expected_halted: bool
     expected_final_ip: int
     expected_error_code: str | None
     expected_trace_words: tuple[str, ...]
+    compile_source: str | None = None
+    expected_compiled_thread: tuple[int, ...] | None = None
     custom_words: tuple["WordSpec", ...] = ()
 
 
@@ -34,8 +36,8 @@ class TraceRow:
     associated_data_source: str
     kernel: str | None
     injected_names: tuple[str, ...]
-    stack_before: tuple[int, ...]
-    stack_after: tuple[int, ...]
+    stack_before: tuple[StackValue, ...]
+    stack_after: tuple[StackValue, ...]
     note: str
     next_ip: int | None
     halted: bool
@@ -43,6 +45,7 @@ class TraceRow:
 
 @dataclass(frozen=True)
 class ScenarioResult:
+    compiled_thread: tuple[int, ...]
     decompiled_thread: tuple[str, ...]
     final_stack: tuple[StackValue, ...]
     halted: bool
@@ -431,6 +434,28 @@ SCENARIOS = (
         expected_trace_words=("LITSTRING", "EXIT"),
     ),
     Scenario(
+        name="compile-s-quote",
+        text='compile S" hi" EXIT',
+        thread=None,
+        compile_source='S" hi" EXIT',
+        expected_compiled_thread=(
+            int(dictionary.PrimitiveInstruction.LITSTRING),
+            2,
+            *pack_inline_bytes(b"hi"),
+            int(dictionary.PrimitiveInstruction.EXIT),
+        ),
+        expected_decompile=(
+            "entry:",
+            "  0: LITSTRING b'hi'",
+            "  3: EXIT",
+        ),
+        expected_stack=(InlineStringRef(payload=b"hi"), 2),
+        expected_halted=True,
+        expected_final_ip=3,
+        expected_error_code=None,
+        expected_trace_words=("LITSTRING", "EXIT"),
+    ),
+    Scenario(
         name="branch-skip",
         text="LIT 7 BRANCH 2 LIT 999 EXIT",
         thread=(
@@ -459,6 +484,33 @@ SCENARIOS = (
         name="zero-branch-taken",
         text="LIT 0 0BRANCH 2 LIT 999 EXIT",
         thread=(
+            int(dictionary.PrimitiveInstruction.LIT),
+            0,
+            int(dictionary.PrimitiveInstruction.ZBRANCH),
+            2,
+            int(dictionary.PrimitiveInstruction.LIT),
+            999,
+            int(dictionary.PrimitiveInstruction.EXIT),
+        ),
+        expected_decompile=(
+            "entry:",
+            "  0: LIT 0",
+            "  2: 0BRANCH 2",
+            "  4: LIT 999",
+            "  6: EXIT",
+        ),
+        expected_stack=(),
+        expected_halted=True,
+        expected_final_ip=6,
+        expected_error_code=None,
+        expected_trace_words=("LIT", "0BRANCH", "EXIT"),
+    ),
+    Scenario(
+        name="compile-if-then",
+        text="compile LIT 0 IF LIT 999 THEN EXIT",
+        thread=None,
+        compile_source="LIT 0 IF LIT 999 THEN EXIT",
+        expected_compiled_thread=(
             int(dictionary.PrimitiveInstruction.LIT),
             0,
             int(dictionary.PrimitiveInstruction.ZBRANCH),
@@ -539,10 +591,94 @@ def build_word_registry(scenario: Scenario) -> dict[int, WordSpec]:
     return registry
 
 
+def resolve_entry_thread(scenario: Scenario) -> tuple[int, ...]:
+    """Resolve one scenario entry thread, optionally through the tiny compiler."""
+
+    if scenario.compile_source is not None:
+        return compile_source_to_thread(scenario.compile_source)
+    if scenario.thread is None:
+        error_exit("scenario-shape-error", f"{scenario.name} has neither thread nor compile source")
+    return scenario.thread
+
+
 def litstring_payload_cells(length: int) -> int:
     """Return how many 32-bit cells are needed for one inline string payload."""
 
     return (length + 3) // 4
+
+
+def consume_token(source: str, start: int) -> tuple[str, int]:
+    """Read one whitespace-delimited token from a compile source."""
+
+    cursor = start
+    while cursor < len(source) and source[cursor].isspace():
+        cursor += 1
+    if cursor >= len(source):
+        error_exit("compile-parse-error", "expected another token")
+
+    end = cursor
+    while end < len(source) and not source[end].isspace():
+        end += 1
+    return source[cursor:end], end
+
+
+def compile_source_to_thread(source: str) -> tuple[int, ...]:
+    """Compile a tiny source language into one entry thread."""
+
+    emitted: list[int] = []
+    branch_placeholders: list[int] = []
+    cursor = 0
+
+    while True:
+        while cursor < len(source) and source[cursor].isspace():
+            cursor += 1
+        if cursor >= len(source):
+            break
+
+        if source.startswith('S"', cursor):
+            cursor += 2
+            if cursor < len(source) and source[cursor].isspace():
+                cursor += 1
+            end = source.find('"', cursor)
+            if end == -1:
+                error_exit("compile-parse-error", 'unterminated S" string literal')
+            payload = source[cursor:end].encode("ascii")
+            emitted.append(int(dictionary.PrimitiveInstruction.LITSTRING))
+            emitted.append(len(payload))
+            emitted.extend(pack_inline_bytes(payload))
+            cursor = end + 1
+            continue
+
+        token, cursor = consume_token(source, cursor)
+        if token == "LIT":
+            literal_token, cursor = consume_token(source, cursor)
+            emitted.append(int(dictionary.PrimitiveInstruction.LIT))
+            emitted.append(int(literal_token))
+            continue
+        if token == "+":
+            emitted.append(int(dictionary.PrimitiveInstruction.ADD))
+            continue
+        if token == "EXIT":
+            emitted.append(int(dictionary.PrimitiveInstruction.EXIT))
+            continue
+        if token == "IF":
+            emitted.append(int(dictionary.PrimitiveInstruction.ZBRANCH))
+            emitted.append(0)
+            branch_placeholders.append(len(emitted) - 1)
+            continue
+        if token == "THEN":
+            if not branch_placeholders:
+                error_exit("compile-parse-error", "THEN has no matching IF")
+            operand_index = branch_placeholders.pop()
+            emitted[operand_index] = len(emitted) - operand_index - 1
+            continue
+
+        error_exit("compile-parse-error", f"unknown compile token {token!r}")
+
+    if branch_placeholders:
+        error_exit("compile-parse-error", "IF without matching THEN")
+
+    return tuple(emitted)
 
 
 def decompile_linear_thread(
@@ -709,9 +845,26 @@ def step_once(
 
 
 def execute_scenario(scenario: Scenario) -> ScenarioResult:
+    compiled_thread = resolve_entry_thread(scenario)
     word_registry = build_word_registry(scenario)
-    state = LoopState(current_thread=scenario.thread)
-    decompiled_thread = decompile_program(scenario, word_registry)
+    state = LoopState(current_thread=compiled_thread)
+    decompiled_thread = decompile_program(
+        Scenario(
+            name=scenario.name,
+            text=scenario.text,
+            thread=compiled_thread,
+            expected_decompile=scenario.expected_decompile,
+            expected_stack=scenario.expected_stack,
+            expected_halted=scenario.expected_halted,
+            expected_final_ip=scenario.expected_final_ip,
+            expected_error_code=scenario.expected_error_code,
+            expected_trace_words=scenario.expected_trace_words,
+            compile_source=scenario.compile_source,
+            expected_compiled_thread=scenario.expected_compiled_thread,
+            custom_words=scenario.custom_words,
+        ),
+        word_registry,
+    )
     trace_rows: list[TraceRow] = []
 
     try:
@@ -741,6 +894,7 @@ def execute_scenario(scenario: Scenario) -> ScenarioResult:
             )
     except ExecutionFault as exc:
         return ScenarioResult(
+            compiled_thread=compiled_thread,
             decompiled_thread=decompiled_thread,
             final_stack=tuple(state.data_stack),
             halted=state.halted,
@@ -751,6 +905,7 @@ def execute_scenario(scenario: Scenario) -> ScenarioResult:
         )
 
     return ScenarioResult(
+        compiled_thread=compiled_thread,
         decompiled_thread=decompiled_thread,
         final_stack=tuple(state.data_stack),
         halted=state.halted,
@@ -762,6 +917,11 @@ def execute_scenario(scenario: Scenario) -> ScenarioResult:
 
 
 def assert_result_matches(scenario: Scenario, result: ScenarioResult) -> None:
+    if scenario.expected_compiled_thread is not None:
+        assert result.compiled_thread == scenario.expected_compiled_thread, (
+            f"{scenario.name}: expected compiled thread {scenario.expected_compiled_thread}, "
+            f"got {result.compiled_thread}"
+        )
     assert result.decompiled_thread == scenario.expected_decompile, (
         f"{scenario.name}: expected decompile {scenario.expected_decompile}, got {result.decompiled_thread}"
     )
@@ -786,6 +946,9 @@ def assert_result_matches(scenario: Scenario, result: ScenarioResult) -> None:
 def print_result_trace(scenario: Scenario, result: ScenarioResult) -> None:
     print(f"== {scenario.name.upper()} ==")
     print(f"thread: {scenario.text}")
+    if scenario.compile_source is not None:
+        print(f"compile source: {scenario.compile_source}")
+        print(f"compiled thread: {list(result.compiled_thread)}")
     print("decompile:")
     for line in result.decompiled_thread:
         print(f"  {line}")

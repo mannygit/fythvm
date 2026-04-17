@@ -91,8 +91,8 @@ close out. Keep the backlog small and explicit.
 - `handler-requirements-python-loop`
   - Title: HandlerRequirements-driven Python loop
   - Goal: Show a tiny Python interpreter loop wiring package metadata into
-    inline-thread words, arithmetic kernels, and `DOCOL` without pretending the
-    final runtime or lowering path is settled.
+    inline-thread words, arithmetic kernels, `DOCOL`, and a tiny compile-to-thread
+    path without pretending the final runtime or lowering path is settled.
   - Why it matters: The repo now has family metadata, associated-data-source
     metadata, and `HandlerRequirements`; this lab makes that trio executable and easy
     to inspect.

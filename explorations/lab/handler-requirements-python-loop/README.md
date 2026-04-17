@@ -3,9 +3,9 @@
 ## Question
 
 Can the current package metadata drive a tiny Python interpreter loop strongly enough
-to make the `LIT`, `LITSTRING`, `+`, and `EXIT` execution shape visible, while also
-supporting a small usable decompiler, without committing to a final runtime ABI or
-lowering pipeline?
+to make the runtime shape of `LIT`, `LITSTRING`, `+`, `DOCOL`, and `EXIT` visible,
+while also supporting a tiny compile-time path for `S"` and `IF`/`THEN`, without
+committing to a final runtime ABI or lowering pipeline?
 
 ## Setup
 
@@ -14,6 +14,10 @@ This lab stays deliberately small:
 - one thread represented as raw cells
 - one Python `LoopState` with `ip`, `current_xt`, and a data stack
 - one linear decompiler over the same raw thread cells
+- one tiny compile step for:
+  - `S"`
+  - `IF`
+  - `THEN`
 - a tiny scenario-local word registry so named threaded words can be introduced
 - handlers for:
   - `LIT`
@@ -67,13 +71,16 @@ The output prints two scenarios:
 
 - one successful thread: `LIT 2 LIT 3 + EXIT`
 - one counted inline string: `LITSTRING "hi" EXIT`
+- one compiled string emitter: `S" hi" EXIT`
 - one failing thread: `LIT 2 + EXIT`
 - one unconditional branch skip: `LIT 7 BRANCH 2 LIT 999 EXIT`
 - one conditional branch skip: `LIT 0 0BRANCH 2 LIT 999 EXIT`
+- one compiled branch emitter: `LIT 0 IF LIT 999 THEN EXIT`
 - one threaded call: `SUM23 EXIT` with `SUM23 := LIT 2 LIT 3 + EXIT`
 
 Each scenario now carries explicit expected outcomes:
 
+- expected compiled thread cells when a compile source is present
 - expected decompiled thread rows
 - expected final stack
 - expected halted/error status
@@ -82,6 +89,7 @@ Each scenario now carries explicit expected outcomes:
 
 For each step the lab shows:
 
+- the compile source and emitted thread when the scenario starts from source text
 - the linear decompiled thread
 - any custom threaded word bodies
 - the current `ip`
@@ -102,6 +110,10 @@ That makes the current metadata story visible in one place:
 - `LITSTRING` is `primitive-inline-operand` and uses the same cursor abstraction, but
   now consumes a variable-width counted payload
 - `+` is `primitive-empty` and gets `data_stack` and `err`
+- `S"` is not a runtime handler here; it is a tiny compile-time emitter that lays
+  down `LITSTRING`, a count cell, and packed payload cells
+- `IF` and `THEN` are also compile-time emitters here; they patch `0BRANCH` offsets
+  into the emitted thread instead of participating in runtime dispatch directly
 - `BRANCH` is `primitive-inline-operand` and gets `thread_cursor`, `thread_jump`,
   and `err`
 - `0BRANCH` is `primitive-inline-operand` and gets `data_stack`, `thread_cursor`,
@@ -118,6 +130,13 @@ interpreter loop if we treat it as:
 - semantic family metadata
 - associated-data-source metadata
 - declarative per-handler requirements
+
+And a very small compile-time layer is already enough to close the loop back into
+that runtime shape if we keep it narrow:
+
+- parse-time words consume source text
+- compile-time emitters lay down runtime thread cells
+- the existing decompiler and executor then validate the emitted shape
 
 That is enough to make the shape of a future lowering pipeline feel concrete without
 claiming that the runtime is settled.
@@ -171,6 +190,11 @@ cell. Some words consume a variable-width counted payload, and the handler surfa
 cleaner if that remains a cursor operation instead of open-coded `ip` arithmetic in
 the handler.
 
+It is also easy to blur runtime words with compile-time emitters once the same lab
+contains both. This lab keeps that boundary explicit: `S"` and `IF`/`THEN` operate on
+source text and emitted cells, while `LITSTRING` and `0BRANCH` operate on the stored
+thread at runtime.
+
 It is also easy to overread the result and assume this means the final package runtime
 should just become a Python dispatch loop. That is not the point. The point is to
 practice the execution shape in a visibility-friendly form so the later lowering work
@@ -182,6 +206,8 @@ Use this pattern when:
 
 - you want to pressure-test the metadata model before building real lowering
 - you want to inspect injected resources and preflight checks in a human-readable way
+- you want a tiny compile-to-thread path that can be checked against the same
+  decompiler and executor harness
 - you need a tiny execution-shaped artifact to discuss `LIT` versus `+` versus
   `EXIT`, fixed-width versus variable-width inline-thread words, or primitive
   inline-thread words versus `DOCOL`
@@ -199,6 +225,7 @@ It is also the wrong shape if the real question is about:
 - `musttail` continuation threading
 - optimization of stack access or frame layout
 - richer decompiler formatting than "linear stored thread plus named child bodies"
+- a complete outer interpreter or standard Forth compiler
 
 Those need separate labs.
 
@@ -207,8 +234,8 @@ Those need separate labs.
 - Should `associated_data_source` become first-class enough that the injection layer
   never has to inspect family metadata?
 - What is the smallest useful next extension after `LITSTRING`:
-  - compile-time control words that emit `BRANCH` / `0BRANCH`
   - richer pointer-like stack values for inline strings and other thread payloads
+  - compile-time words that create named threaded words instead of just entry threads
 - Should `associated_data_source` remain purely semantic, or should some injections
   continue to be inferred from it alongside explicit requirement flags?
 - At what point does this Python shape want a second variant that mirrors future
