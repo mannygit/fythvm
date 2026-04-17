@@ -165,4 +165,31 @@ SCENARIOS = (
         ),
         lookup_then_execute_name="SUM23",
     ),
+    Scenario(
+        name="jit-execute-custom-word-then-jit-halt",
+        thread=(
+            int(dictionary.PrimitiveInstruction.LIT),
+            "SUM23",
+            int(dictionary.PrimitiveInstruction.EXECUTE),
+            int(dictionary.PrimitiveInstruction.HALT),
+        ),
+        expected_stack=(5,),
+        expected_final_ip=3,
+        expected_state_flags=STATE_HALT_REQUESTED,
+        expected_trace_backends=("jit", "jit", "jit", "jit", "jit", "jit", "jit"),
+        custom_words=(
+            WordBlueprint(
+                name="SUM23",
+                handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
+                thread=(
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    2,
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    3,
+                    int(dictionary.PrimitiveInstruction.ADD),
+                    int(dictionary.PrimitiveInstruction.EXIT),
+                ),
+            ),
+        ),
+    ),
 )

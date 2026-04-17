@@ -49,6 +49,7 @@ class ContinuationKind(Enum):
 
     FALLTHROUGH = "fallthrough"
     EXACT_IP = "exact_ip"
+    DISPATCH_CURRENT = "dispatch_current"
     HALT = "halt"
     LABELED = "labeled"
 
@@ -373,7 +374,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
         int(PrimitiveInstruction.TELL): _descriptor(PrimitiveInstruction.TELL, "TELL", InstructionCategory.PARSER_IO, "Write a counted or addressed string.", requirements=_req(min_data_stack_in=2, kernel="tell")),
         int(PrimitiveInstruction.INTERPRET): _descriptor(PrimitiveInstruction.INTERPRET, "INTERPRET", InstructionCategory.DICTIONARY_COMPILER, "Run the outer interpreter loop core.", requirements=_req(needs_input_source=True, needs_dictionary=True, kernel="interpret")),
         int(PrimitiveInstruction.CHAR): _descriptor(PrimitiveInstruction.CHAR, "CHAR", InstructionCategory.PARSER_IO, "Parse one character token.", requirements=_req(min_data_stack_out_space=1, needs_input_source=True, kernel="parse_char")),
-        int(PrimitiveInstruction.EXECUTE): _descriptor(PrimitiveInstruction.EXECUTE, "EXECUTE", InstructionCategory.DICTIONARY_COMPILER, "Execute a word by xt.", requirements=_req(min_data_stack_in=1, kernel="execute_xt")),
+        int(PrimitiveInstruction.EXECUTE): _descriptor(PrimitiveInstruction.EXECUTE, "EXECUTE", InstructionCategory.DICTIONARY_COMPILER, "Execute a word by xt.", requirements=_req(min_data_stack_in=1, needs_current_xt=True, kernel="execute_xt"), continuation=ContinuationKind.DISPATCH_CURRENT),
         int(PrimitiveInstruction.SYSCALL3): _descriptor(PrimitiveInstruction.SYSCALL3, "SYSCALL3", InstructionCategory.HOST_BRIDGE, "Invoke a host syscall with three arguments.", requirements=_req(min_data_stack_in=4, min_data_stack_out_space=1, kernel="syscall3")),
         int(PrimitiveInstruction.SYSCALL2): _descriptor(PrimitiveInstruction.SYSCALL2, "SYSCALL2", InstructionCategory.HOST_BRIDGE, "Invoke a host syscall with two arguments.", requirements=_req(min_data_stack_in=3, min_data_stack_out_space=1, kernel="syscall2")),
         int(PrimitiveInstruction.SYSCALL1): _descriptor(PrimitiveInstruction.SYSCALL1, "SYSCALL1", InstructionCategory.HOST_BRIDGE, "Invoke a host syscall with one argument.", requirements=_req(min_data_stack_in=2, min_data_stack_out_space=1, kernel="syscall1")),

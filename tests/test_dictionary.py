@@ -259,6 +259,17 @@ def test_instruction_registry_exposes_docol_word_local_thread_metadata() -> None
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.DOCOL)) is dictionary.COLON_THREAD_FAMILY
 
 
+def test_instruction_registry_exposes_execute_current_word_metadata() -> None:
+    descriptor = dictionary.instruction_descriptor_for_handler_id(dictionary.PrimitiveInstruction.EXECUTE)
+
+    assert descriptor is not None
+    assert descriptor.key == "EXECUTE"
+    assert descriptor.requirements.min_data_stack_in == 1
+    assert descriptor.requirements.needs_current_xt is True
+    assert descriptor.requirements.kernel == "execute_xt"
+    assert descriptor.continuation is dictionary.ContinuationKind.DISPATCH_CURRENT
+
+
 def test_instruction_registry_leaves_unregistered_instruction_without_descriptor() -> None:
     assert dictionary.instruction_descriptor_for_handler_id(120) is None
 
