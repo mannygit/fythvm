@@ -75,6 +75,22 @@ class ReifiedContextView(BoundStructView):
     sp = StructField(1)
 
 
+class PaddedScalarContext(ctypes.Structure):
+    _fields_ = [
+        ("head", ctypes.c_int32),
+        ("wide", ctypes.c_longlong),
+        ("tail", ctypes.c_int32),
+    ]
+
+
+class GeneratedFlags(ctypes.Structure):
+    _fields_ = [
+        ("low", ctypes.c_ubyte, 3),
+        ("high", ctypes.c_ubyte, 5),
+        ("wide", ctypes.c_ushort),
+    ]
+
+
 def test_shared_exit_merges_status_and_value() -> None:
     configure_llvm()
 
@@ -185,6 +201,65 @@ def test_struct_handle_can_reify_fixed_ctypes_layout() -> None:
     compiled = compile_ir_module(module)
     read_sp = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("read_sp"))
     assert read_sp() == 3
+
+
+def test_struct_handle_generated_view_tracks_ctypes_padding() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="generated_view_tracks_padding")
+    module.triple = binding.get_default_triple()
+    handle = StructHandle.from_ctypes("padded scalar context", PaddedScalarContext)
+
+    assert handle.view_source is not None
+    assert "wide = StructField(2)" in handle.view_source
+    assert "tail = StructField(3)" in handle.view_source
+
+    instance = PaddedScalarContext(7, 123456789, 99)
+    global_var = handle.define_global_from_ctypes(module, "ctx_data", instance)
+
+    fn = ir.Function(module, ir.FunctionType(I32, []), name="read_tail")
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    view = handle.bind(builder, global_var)
+    builder.ret(view.tail.load())
+
+    compiled = compile_ir_module(module)
+    read_tail = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("read_tail"))
+    assert read_tail() == 99
+
+
+def test_struct_handle_generated_view_exposes_logical_bitfields() -> None:
+    configure_llvm()
+
+    module = ir.Module(name="generated_view_bitfields")
+    module.triple = binding.get_default_triple()
+    handle = StructHandle.from_ctypes("generated flags", GeneratedFlags)
+
+    assert handle.view_source is not None
+    assert "low = BitField(0, 0, 3)" in handle.view_source
+    assert "high = BitField(0, 3, 5)" in handle.view_source
+    assert "wide = StructField(2)" in handle.view_source
+
+    flags_global = handle.define_global_from_ctypes(module, "flags_data", GeneratedFlags(0, 0, 0))
+
+    set_fields = ir.Function(module, ir.FunctionType(I32, []), name="set_generated_fields")
+    builder = ir.IRBuilder(set_fields.append_basic_block("entry"))
+    view = handle.bind(builder, flags_global)
+    view.low.store(ir.IntType(3)(5))
+    view.high.store(ir.IntType(5)(17))
+    builder.ret(builder.zext(view.wide.load(), I32))
+
+    read_sum = ir.Function(module, ir.FunctionType(I32, []), name="read_generated_sum")
+    builder = ir.IRBuilder(read_sum.append_basic_block("entry"))
+    view = handle.bind(builder, flags_global)
+    low = builder.zext(view.low.load(), I32)
+    high = builder.zext(view.high.load(), I32)
+    builder.ret(builder.add(low, high))
+
+    compiled = compile_ir_module(module)
+    set_fields_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("set_generated_fields"))
+    read_sum_fn = ctypes.CFUNCTYPE(ctypes.c_int32)(compiled.function_address("read_generated_sum"))
+    assert set_fields_fn() == 0
+    assert read_sum_fn() == 22
 
 
 def test_bound_struct_field_can_bind_nested_struct_view() -> None:

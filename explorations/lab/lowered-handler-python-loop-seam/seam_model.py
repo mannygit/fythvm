@@ -48,7 +48,7 @@ SCENARIOS = (
         expected_trace_backends=("jit",),
     ),
     Scenario(
-        name="python-lit-then-jit-halt",
+        name="jit-lit-then-jit-halt",
         thread=(
             int(dictionary.PrimitiveInstruction.LIT),
             7,
@@ -57,6 +57,6 @@ SCENARIOS = (
         expected_stack=(7,),
         expected_final_ip=2,
         expected_state_flags=STATE_HALT_REQUESTED,
-        expected_trace_backends=("python", "jit"),
+        expected_trace_backends=("jit", "jit"),
     ),
 )

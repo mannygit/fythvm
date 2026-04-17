@@ -17,6 +17,32 @@ BYTEORDER = sys.byteorder
 
 
 @dataclass(frozen=True)
+class PhysicalFieldSpec:
+    """One physical storage slot in a reified ctypes-backed IR struct."""
+
+    name: str
+    ir_type: ir.Type
+    byte_offset: int
+    byte_size: int
+    kind: str
+
+
+@dataclass(frozen=True)
+class LogicalFieldSpec:
+    """One logical field view projected over physical ctypes-backed storage."""
+
+    name: str
+    storage_index: int
+    storage_name: str
+    bit_offset: int | None = None
+    bit_width: int | None = None
+
+    @property
+    def is_bitfield(self) -> bool:
+        return self.bit_width is not None
+
+
+@dataclass(frozen=True)
 class BoundStructField:
     """One named field on a builder-bound struct view."""
 
@@ -194,6 +220,9 @@ class StructHandle:
     label: str
     ir_type: ir.Type
     view_type: type[BoundStructView] = BoundStructView
+    view_source: str | None = None
+    logical_fields: tuple[LogicalFieldSpec, ...] = ()
+    physical_fields: tuple[PhysicalFieldSpec, ...] = ()
 
     @classmethod
     def literal(
@@ -215,42 +244,142 @@ class StructHandle:
         label: str,
         ctypes_cls: type[ctypes.Structure],
         *,
-        view_type: type[BoundStructView] = BoundStructView,
+        view_type: type[BoundStructView] | None = None,
     ) -> "StructHandle":
         if not issubclass(ctypes_cls, ctypes.Structure):
             raise TypeError(f"expected ctypes.Structure subclass, got {ctypes_cls!r}")
 
-        fields: list[ir.Type] = []
-        current_offset = 0
-        for field_name, ctype, *rest in ctypes_cls._fields_:
-            if rest:
-                raise ValueError(f"bitfields are not supported by StructHandle.from_ctypes: {field_name}")
+        physical_storage: list[tuple[str, PhysicalFieldSpec]] = []
+        unresolved_logical_fields: list[tuple[str, LogicalFieldSpec]] = []
 
+        for field_name, ctype, *rest in ctypes_cls._fields_:
             field_desc = getattr(ctypes_cls, field_name)
             byte_offset = field_desc.offset
             byte_size = ctypes.sizeof(ctype)
+            storage_ir_type = _ir_type_from_ctypes(ctype)
 
-            if byte_offset > current_offset:
-                pad_size = byte_offset - current_offset
-                fields.append(ir.ArrayType(ir.IntType(8), pad_size))
+            if rest:
+                storage_key = f"storage:{byte_offset}:{byte_size}"
+                if storage_key not in {key for key, _ in physical_storage}:
+                    physical_storage.append(
+                        (
+                            storage_key,
+                            PhysicalFieldSpec(
+                                name=f"_{field_name}_storage",
+                                ir_type=storage_ir_type,
+                                byte_offset=byte_offset,
+                                byte_size=byte_size,
+                                kind="storage",
+                            ),
+                        )
+                    )
+                unresolved_logical_fields.append(
+                    (
+                        storage_key,
+                        LogicalFieldSpec(
+                            name=field_name,
+                            storage_index=-1,
+                            storage_name="",
+                            bit_offset=field_desc.bit_offset,
+                            bit_width=field_desc.bit_size,
+                        ),
+                    )
+                )
+                continue
+
+            storage_key = f"field:{field_name}"
+            physical_storage.append(
+                (
+                    storage_key,
+                    PhysicalFieldSpec(
+                        name=field_name,
+                        ir_type=storage_ir_type,
+                        byte_offset=byte_offset,
+                        byte_size=byte_size,
+                        kind="storage",
+                    ),
+                )
+            )
+            unresolved_logical_fields.append(
+                (
+                    storage_key,
+                    LogicalFieldSpec(
+                        name=field_name,
+                        storage_index=-1,
+                        storage_name="",
+                    ),
+                )
+            )
+
+        storage_by_key = dict(physical_storage)
+        ordered_storage = sorted(storage_by_key.items(), key=lambda item: (item[1].byte_offset, item[1].name))
+
+        physical_fields: list[PhysicalFieldSpec] = []
+        storage_index_by_key: dict[str, int] = {}
+        current_offset = 0
+        pad_index = 0
+        for storage_key, storage_spec in ordered_storage:
+            if storage_spec.byte_offset > current_offset:
+                pad_size = storage_spec.byte_offset - current_offset
+                physical_fields.append(
+                    PhysicalFieldSpec(
+                        name=f"_pad_{pad_index:02d}",
+                        ir_type=ir.ArrayType(ir.IntType(8), pad_size),
+                        byte_offset=current_offset,
+                        byte_size=pad_size,
+                        kind="padding",
+                    )
+                )
                 current_offset += pad_size
-            elif byte_offset < current_offset:
+                pad_index += 1
+            elif storage_spec.byte_offset < current_offset:
                 raise ValueError(
-                    f"overlapping or out-of-order ctypes field layout is unsupported: {field_name}"
+                    f"overlapping or out-of-order ctypes field layout is unsupported: {storage_spec.name}"
                 )
 
-            fields.append(_ir_type_from_ctypes(ctype))
-            current_offset = byte_offset + byte_size
+            storage_index_by_key[storage_key] = len(physical_fields)
+            physical_fields.append(storage_spec)
+            current_offset = storage_spec.byte_offset + storage_spec.byte_size
 
         total_size = ctypes.sizeof(ctypes_cls)
         if total_size > current_offset:
-            fields.append(ir.ArrayType(ir.IntType(8), total_size - current_offset))
+            physical_fields.append(
+                PhysicalFieldSpec(
+                    name=f"_pad_{pad_index:02d}",
+                    ir_type=ir.ArrayType(ir.IntType(8), total_size - current_offset),
+                    byte_offset=current_offset,
+                    byte_size=total_size - current_offset,
+                    kind="padding",
+                )
+            )
 
         packed = getattr(ctypes_cls, "_pack_", None) is not None
+        resolved_logical_fields = tuple(
+            LogicalFieldSpec(
+                name=logical.name,
+                storage_index=storage_index_by_key[storage_key],
+                storage_name=storage_by_key[storage_key].name,
+                bit_offset=logical.bit_offset,
+                bit_width=logical.bit_width,
+            )
+            for storage_key, logical in unresolved_logical_fields
+        )
+
+        generated_view_source: str | None = None
+        resolved_view_type = view_type
+        if resolved_view_type is None:
+            resolved_view_type, generated_view_source = build_generated_view_type(
+                ctypes_cls,
+                resolved_logical_fields,
+            )
+
         return cls(
             label=label,
-            ir_type=ir.LiteralStructType(fields, packed=packed),
-            view_type=view_type,
+            ir_type=ir.LiteralStructType([field.ir_type for field in physical_fields], packed=packed),
+            view_type=resolved_view_type or BoundStructView,
+            view_source=generated_view_source,
+            logical_fields=resolved_logical_fields,
+            physical_fields=tuple(physical_fields),
         )
 
     @classmethod
@@ -321,6 +450,34 @@ class StructHandle:
 
     def bind(self, builder: ir.IRBuilder, struct_ptr: ir.Value) -> BoundStructView:
         return self.view_type(self, builder, struct_ptr)
+
+
+def build_generated_view_type(
+    ctypes_cls: type[ctypes.Structure],
+    logical_fields: tuple[LogicalFieldSpec, ...],
+) -> tuple[type[BoundStructView], str]:
+    """Generate a named logical projection class from resolved ctypes layout."""
+
+    view_name = f"{ctypes_cls.__name__}View"
+    source_lines = [
+        f"class {view_name}(BoundStructView):",
+        f'    """Generated bound view for {ctypes_cls.__name__}."""',
+    ]
+    for logical in logical_fields:
+        if logical.is_bitfield:
+            source_lines.append(
+                f"    {logical.name} = BitField({logical.storage_index}, {logical.bit_offset}, {logical.bit_width})"
+            )
+        else:
+            source_lines.append(f"    {logical.name} = StructField({logical.storage_index})")
+    source = "\n".join(source_lines)
+    namespace: dict[str, object] = {
+        "BoundStructView": BoundStructView,
+        "BitField": BitField,
+        "StructField": StructField,
+    }
+    exec(source, namespace)
+    return namespace[view_name], source
 
 
 INTEGER_TYPE_CODES: set[str] = {

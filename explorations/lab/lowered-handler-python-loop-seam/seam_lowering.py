@@ -7,13 +7,16 @@ from typing import Callable
 from llvmlite import ir
 
 from fythvm import dictionary
+from fythvm.codegen import BoundStackAccess, StructViewStackAccess
 from fythvm.codegen.llvm import compile_ir_module
 
-from seam_state import LoweredLoopState, LoweredLoopStateView, STATE_HANDLE, STATE_HALT_REQUESTED
+from seam_state import LoweredLoopState, LoweredLoopStateView, STATE_HANDLE
+from seam_thread import ThreadCursorIR
 
 
-I32 = ir.IntType(32)
+I1 = ir.IntType(1)
 LoweredOp = Callable[..., None]
+HALT_REQUESTED_BIT = I1(1)
 
 
 @dataclass(frozen=True)
@@ -24,9 +27,7 @@ class LoweredExecutionControlIR:
     state: LoweredLoopStateView
 
     def request_halt(self) -> None:
-        flags = self.state.state_flags.load(name="state_flags")
-        updated = self.builder.or_(flags, I32(STATE_HALT_REQUESTED), name="halt_requested")
-        self.state.state_flags.store(updated)
+        self.state.halt_requested.store(HALT_REQUESTED_BIT)
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,10 @@ def injected_ir_resources(
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {}
     requirements = descriptor.requirements
+    if requirements.min_data_stack_in > 0 or requirements.min_data_stack_out_space > 0:
+        kwargs["data_stack"] = StructViewStackAccess(state).bind(builder)
+    if requirements.needs_thread_cursor:
+        kwargs["thread_cursor"] = ThreadCursorIR(builder=builder, state=state)
     if requirements.needs_execution_control:
         kwargs["control"] = LoweredExecutionControlIR(builder=builder, state=state)
     if requirements.needs_error_exit:
@@ -78,7 +83,28 @@ def op_halt_ir(
     control.request_halt()
 
 
+def op_lit_ir(
+    builder: ir.IRBuilder,
+    *,
+    data_stack: BoundStackAccess,
+    thread_cursor: ThreadCursorIR,
+    err: LoweredErrorExitIR,
+) -> None:
+    """Emit LIT's local IR effect without owning wrapper termination."""
+
+    _ = builder
+    _ = err
+    literal = thread_cursor.read_inline_cell()
+    data_stack.push(literal, name="lit_sp")
+
+
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
+    int(dictionary.PrimitiveInstruction.LIT): LoweredHandlerSpec(
+        handler_id=int(dictionary.PrimitiveInstruction.LIT),
+        function_name="lowered_lit",
+        op=op_lit_ir,
+        note="read one inline cell after ip and push it through the lowered stack view",
+    ),
     int(dictionary.PrimitiveInstruction.HALT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.HALT),
         function_name="lowered_halt",

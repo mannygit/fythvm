@@ -1,28 +1,18 @@
 from __future__ import annotations
 
 import ctypes
-from typing import Callable
-
 from fythvm import dictionary
 
 from seam_lowering import LOWERED_HANDLER_SPECS
 from seam_model import Scenario, ScenarioResult, TraceRow
-from seam_state import LoweredLoopState, STACK_CAPACITY, STATE_HALT_REQUESTED
-
-
-PythonHandler = Callable[[LoweredLoopState, tuple[int, ...]], str]
+from seam_state import LoweredLoopState, STACK_CAPACITY, state_flags_value
+from seam_thread import materialize_thread_buffer
 
 
 def stack_snapshot(state: LoweredLoopState) -> tuple[int, ...]:
-    return tuple(int(state.data_stack[index]) for index in range(int(state.stack_depth)))
-
-
-def stack_push(state: LoweredLoopState, value: int) -> None:
-    depth = int(state.stack_depth)
-    if depth >= STACK_CAPACITY:
-        raise RuntimeError("stack overflow in lab state")
-    state.data_stack[depth] = int(value)
-    state.stack_depth = depth + 1
+    sp = int(state.sp)
+    window = [int(state.stack[index]) for index in range(sp, STACK_CAPACITY)]
+    return tuple(reversed(window))
 
 
 def projected_data_stack_depth(
@@ -37,7 +27,7 @@ def ensure_data_stack_requirements(
     descriptor: dictionary.InstructionDescriptor,
 ) -> None:
     requirements = descriptor.requirements
-    depth = int(state.stack_depth)
+    depth = STACK_CAPACITY - int(state.sp)
     if depth < requirements.min_data_stack_in:
         raise RuntimeError(
             f"{descriptor.key} requires {requirements.min_data_stack_in} data-stack items,"
@@ -72,18 +62,8 @@ def decompile_thread(thread: tuple[int, ...]) -> tuple[str, ...]:
     return tuple(lines)
 
 
-def handle_python_lit(state: LoweredLoopState, thread: tuple[int, ...]) -> str:
-    operand_ip = int(state.ip) + 1
-    if operand_ip >= len(thread):
-        raise RuntimeError("LIT missing operand")
-    stack_push(state, int(thread[operand_ip]))
-    state.ip = operand_ip
-    return f"push literal {int(thread[operand_ip])}"
-
-
-PYTHON_HANDLER_BY_ID: dict[int, PythonHandler] = {
-    int(dictionary.PrimitiveInstruction.LIT): handle_python_lit,
-}
+def halt_requested(state: LoweredLoopState) -> bool:
+    return bool(int(state.halt_requested))
 
 
 def execute_scenario(
@@ -91,9 +71,13 @@ def execute_scenario(
     lowered_functions: dict[int, ctypes._CFuncPtr],  # type: ignore[attr-defined]
 ) -> ScenarioResult:
     state = LoweredLoopState()
+    state.sp = STACK_CAPACITY
+    thread_buffer = materialize_thread_buffer(scenario.thread)
+    state.thread_cells = ctypes.cast(thread_buffer, ctypes.POINTER(ctypes.c_int32))
+    state.thread_length = len(scenario.thread)
     trace_rows: list[TraceRow] = []
 
-    while not (int(state.state_flags) & STATE_HALT_REQUESTED):
+    while not halt_requested(state):
         ip = int(state.ip)
         if ip >= len(scenario.thread):
             raise RuntimeError("thread stepped past end without HALT")
@@ -106,12 +90,9 @@ def execute_scenario(
 
         ensure_data_stack_requirements(state, descriptor)
         stack_before = stack_snapshot(state)
-        flags_before = int(state.state_flags)
+        flags_before = state_flags_value(state)
 
-        if xt in PYTHON_HANDLER_BY_ID:
-            backend = "python"
-            note = PYTHON_HANDLER_BY_ID[xt](state, scenario.thread)
-        elif xt in LOWERED_HANDLER_SPECS:
+        if xt in LOWERED_HANDLER_SPECS:
             backend = "jit"
             lowered_functions[xt](ctypes.pointer(state))
             note = LOWERED_HANDLER_SPECS[xt].note
@@ -127,19 +108,19 @@ def execute_scenario(
                 stack_before=stack_before,
                 stack_after=stack_snapshot(state),
                 state_flags_before=flags_before,
-                state_flags_after=int(state.state_flags),
+                state_flags_after=state_flags_value(state),
                 note=note,
             )
         )
 
-        if int(state.state_flags) & STATE_HALT_REQUESTED:
+        if halt_requested(state):
             break
         state.ip = int(state.ip) + 1
 
     return ScenarioResult(
         final_stack=stack_snapshot(state),
         final_ip=int(state.ip),
-        state_flags=int(state.state_flags),
+        state_flags=state_flags_value(state),
         trace=tuple(trace_rows),
     )
 
