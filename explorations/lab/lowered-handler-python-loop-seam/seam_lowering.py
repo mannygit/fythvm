@@ -4,7 +4,7 @@ import ctypes
 from dataclasses import dataclass
 from typing import Callable
 
-from llvmlite import ir
+from llvmlite import binding, ir
 
 from fythvm import dictionary
 from fythvm.codegen import (
@@ -55,25 +55,18 @@ class LoweredExecutionControlIR:
 
 
 @dataclass(frozen=True)
-class SeamNextTrampolineIR:
-    """Shared continuation targets for the seam lab's NEXT-like lowering."""
+class SeamLabeledContinuationIR:
+    """Ephemeral labeled continuation outcome for special-case handlers like 0BRANCH."""
 
     builder: ir.IRBuilder
-    advance_ip_block: ir.Block
-    refetch_block: ir.Block
-    halt_block: ir.Block
+    label_slot: ir.Value
+    label_ids: dict[str, int]
 
-    def continue_fallthrough(self) -> None:
-        self.builder.branch(self.advance_ip_block)
-
-    def continue_exact(self) -> None:
-        self.builder.branch(self.refetch_block)
-
-    def continue_if_exact(self, should_branch: ir.Value) -> None:
-        self.builder.cbranch(should_branch, self.refetch_block, self.advance_ip_block)
-
-    def halt(self) -> None:
-        self.builder.branch(self.halt_block)
+    def select_between(self, condition: ir.Value, *, when_true: str, when_false: str) -> None:
+        true_id = I32(self.label_ids[when_true])
+        false_id = I32(self.label_ids[when_false])
+        label_value = self.builder.select(condition, true_id, false_id, name="continuation_label")
+        self.builder.store(label_value, self.label_slot)
 
 
 @dataclass(frozen=True)
@@ -151,11 +144,10 @@ def injected_ir_resources(
     builder: ir.IRBuilder,
     state: LoweredLoopStateView,
     descriptor: dictionary.InstructionDescriptor,
-    trampoline: SeamNextTrampolineIR,
+    labeled_continuation: SeamLabeledContinuationIR | None = None,
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {}
     requirements = descriptor.requirements
-    kwargs["trampoline"] = trampoline
     if requirements.min_data_stack_in > 0 or requirements.min_data_stack_out_space > 0:
         kwargs["data_stack"] = StructViewStackAccess(state).bind(builder)
     if requirements.needs_thread_cursor:
@@ -174,6 +166,10 @@ def injected_ir_resources(
         kwargs["control"] = LoweredExecutionControlIR(builder=builder, state=state)
     if requirements.needs_error_exit:
         kwargs["err"] = LoweredErrorExitIR(builder=builder)
+    if requirements.needs_labeled_continuation:
+        if labeled_continuation is None:
+            raise RuntimeError(f"{descriptor.key} requested labeled continuation without a surface")
+        kwargs["labeled_continuation"] = labeled_continuation
     return kwargs
 
 
@@ -181,7 +177,6 @@ def op_halt_ir(
     builder: ir.IRBuilder,
     *,
     control: LoweredExecutionControlIR,
-    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit HALT's local IR effect without owning whole-step termination."""
@@ -189,7 +184,6 @@ def op_halt_ir(
     _ = builder
     _ = err
     control.request_halt()
-    trampoline.halt()
 
 
 def op_lit_ir(
@@ -197,7 +191,6 @@ def op_lit_ir(
     *,
     data_stack: BoundStackAccess,
     thread_cursor: ThreadCursorIR,
-    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit LIT's local IR effect without owning whole-step termination."""
@@ -206,14 +199,12 @@ def op_lit_ir(
     _ = err
     literal = thread_cursor.read_inline_cell()
     data_stack.push(literal, name="lit_sp")
-    trampoline.continue_fallthrough()
 
 
 def op_add_ir(
     builder: ir.IRBuilder,
     *,
     data_stack: BoundStackAccess,
-    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit ADD's local IR effect without owning whole-step termination."""
@@ -224,7 +215,6 @@ def op_add_ir(
         result_index_name="add_result_index",
         result_ptr_name="add_result_ptr",
     )
-    trampoline.continue_fallthrough()
 
 
 def op_branch_ir(
@@ -232,7 +222,6 @@ def op_branch_ir(
     *,
     thread_cursor: ThreadCursorIR,
     thread_jump: SeamThreadJumpIR,
-    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit BRANCH's local IR effect without owning whole-step termination."""
@@ -241,7 +230,6 @@ def op_branch_ir(
     _ = err
     offset = thread_cursor.read_inline_cell()
     thread_jump.branch_relative(offset)
-    trampoline.continue_exact()
 
 
 def op_zbranch_ir(
@@ -250,7 +238,7 @@ def op_zbranch_ir(
     data_stack: BoundStackAccess,
     thread_cursor: ThreadCursorIR,
     thread_jump: SeamThreadJumpIR,
-    trampoline: SeamNextTrampolineIR,
+    labeled_continuation: SeamLabeledContinuationIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit 0BRANCH's local IR effect without owning whole-step termination."""
@@ -260,7 +248,11 @@ def op_zbranch_ir(
     offset = thread_cursor.read_inline_cell()
     data_stack.drop(name="zbranch_next_sp")
     should_branch = thread_jump.branch_if_zero(condition, offset)
-    trampoline.continue_if_exact(should_branch)
+    labeled_continuation.select_between(
+        should_branch,
+        when_true="branch_taken",
+        when_false="branch_fallthrough",
+    )
 
 
 def op_docol_ir(
@@ -269,7 +261,6 @@ def op_docol_ir(
     current_word_thread: CurrentXtDictionaryThreadIR,
     return_stack: ReturnStackIR,
     control: LoweredExecutionControlIR,
-    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit DOCOL's local IR effect without owning whole-step termination."""
@@ -277,7 +268,6 @@ def op_docol_ir(
     _ = builder
     _ = err
     control.enter_thread(thread=current_word_thread.ref(), return_stack=return_stack)
-    trampoline.continue_exact()
 
 
 def op_exit_ir(
@@ -285,7 +275,6 @@ def op_exit_ir(
     *,
     return_stack: ReturnStackIR,
     control: LoweredExecutionControlIR,
-    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
     """Emit EXIT's local IR effect without owning whole-step termination."""
@@ -294,7 +283,6 @@ def op_exit_ir(
     _ = err
     thread, return_ip = return_stack.pop_frame()
     control.return_to_thread(thread=thread, return_ip=return_ip)
-    trampoline.continue_exact()
 
 
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
@@ -355,6 +343,66 @@ def emit_fetch_current_xt(
     current_xt = builder.load(xt_ptr, name=f"{name_prefix}_xt")
     state.current_xt.store(current_xt)
     return current_xt
+
+
+def _continuation_block_for_kind(
+    continuation: dictionary.ContinuationKind,
+    *,
+    advance_ip_block: ir.Block,
+    refetch_block: ir.Block,
+    halt_block: ir.Block,
+) -> ir.Block:
+    if continuation is dictionary.ContinuationKind.FALLTHROUGH:
+        return advance_ip_block
+    if continuation is dictionary.ContinuationKind.EXACT_IP:
+        return refetch_block
+    if continuation is dictionary.ContinuationKind.HALT:
+        return halt_block
+    raise RuntimeError(f"unsupported continuation kind for direct branch: {continuation.value}")
+
+
+def emit_descriptor_continuation(
+    *,
+    builder: ir.IRBuilder,
+    descriptor: dictionary.InstructionDescriptor,
+    advance_ip_block: ir.Block,
+    refetch_block: ir.Block,
+    halt_block: ir.Block,
+    labeled_continuation_slot: ir.Value | None,
+) -> None:
+    continuation = descriptor.continuation
+    if continuation is not dictionary.ContinuationKind.LABELED:
+        builder.branch(
+            _continuation_block_for_kind(
+                continuation,
+                advance_ip_block=advance_ip_block,
+                refetch_block=refetch_block,
+                halt_block=halt_block,
+            )
+        )
+        return
+
+    if labeled_continuation_slot is None:
+        raise RuntimeError(f"{descriptor.key} requested labeled continuation without a slot")
+
+    label_value = builder.load(labeled_continuation_slot, name=f"{descriptor.key.lower()}_continuation_label")
+    default_block = builder.append_basic_block(f"{descriptor.key.lower()}_continuation_default")
+    switch = builder.switch(label_value, default_block)
+    for label_index, (label_name, target_kind) in enumerate(descriptor.continuation_labels):
+        case_block = builder.append_basic_block(f"{descriptor.key.lower()}_{label_name}")
+        switch.add_case(I32(label_index), case_block)
+        with builder.goto_block(case_block):
+            builder.branch(
+                _continuation_block_for_kind(
+                    target_kind,
+                    advance_ip_block=advance_ip_block,
+                    refetch_block=refetch_block,
+                    halt_block=halt_block,
+                )
+            )
+
+    with builder.goto_block(default_block):
+        builder.branch(halt_block)
 
 
 def define_lowered_step(module: ir.Module) -> None:
@@ -425,19 +473,39 @@ def define_lowered_step(module: ir.Module) -> None:
         case_block = function.append_basic_block(f"case_{spec.function_name}")
         dispatcher.add_case(I32(spec.handler_id), case_block)
         with builder.goto_block(case_block):
-            trampoline = SeamNextTrampolineIR(
-                builder=builder,
-                advance_ip_block=advance_ip_block,
-                refetch_block=refetch_block,
-                halt_block=halt_block,
-            )
+            labeled_continuation = None
+            labeled_continuation_slot = None
+            if descriptor.requirements.needs_labeled_continuation:
+                label_ids = {
+                    label_name: label_index
+                    for label_index, (label_name, _target_kind) in enumerate(
+                        descriptor.continuation_labels
+                    )
+                }
+                labeled_continuation_slot = builder.alloca(
+                    I32,
+                    name=f"{descriptor.key.lower()}_continuation_label_ptr",
+                )
+                labeled_continuation = SeamLabeledContinuationIR(
+                    builder=builder,
+                    label_slot=labeled_continuation_slot,
+                    label_ids=label_ids,
+                )
             kwargs = injected_ir_resources(
                 builder=builder,
                 state=state,
                 descriptor=descriptor,
-                trampoline=trampoline,
+                labeled_continuation=labeled_continuation,
             )
             spec.op(builder, **kwargs)
+            emit_descriptor_continuation(
+                builder=builder,
+                descriptor=descriptor,
+                advance_ip_block=advance_ip_block,
+                refetch_block=refetch_block,
+                halt_block=halt_block,
+                labeled_continuation_slot=labeled_continuation_slot,
+            )
 
     with builder.goto_block(default_block):
         state.halt_requested.store(TRUE_BIT)
@@ -477,7 +545,11 @@ def build_lowered_runtime() -> tuple[
     ctypes._CFuncPtr,  # type: ignore[attr-defined]
     int,
 ]:
+    target = binding.Target.from_default_triple()
+    target_machine = target.create_target_machine()
     module = ir.Module(name="lowered_handler_seam")
+    module.triple = binding.get_default_triple()
+    module.data_layout = str(target_machine.target_data)
     define_lowered_step(module)
 
     compiled = compile_ir_module(module)
