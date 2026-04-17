@@ -273,6 +273,7 @@ def _return_req(
     min_data_stack_out_space: int = 0,
     min_return_stack_in: int = 0,
     min_return_stack_out_space: int = 0,
+    needs_execution_control: bool = False,
     kernel: str,
 ) -> HandlerRequirements:
     return _req(
@@ -281,6 +282,7 @@ def _return_req(
         min_return_stack_in=min_return_stack_in,
         min_return_stack_out_space=min_return_stack_out_space,
         needs_return_stack=True,
+        needs_execution_control=needs_execution_control,
         kernel=kernel,
     )
 
@@ -321,7 +323,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
         int(PrimitiveInstruction.OR): _descriptor(PrimitiveInstruction.OR, "OR", InstructionCategory.COMPARISON_BITWISE, "Bitwise or on top two stack items.", requirements=_stack_req(2, 1, "binary_reduce")),
         int(PrimitiveInstruction.XOR): _descriptor(PrimitiveInstruction.XOR, "XOR", InstructionCategory.COMPARISON_BITWISE, "Bitwise xor on top two stack items.", requirements=_stack_req(2, 1, "binary_reduce")),
         int(PrimitiveInstruction.INVERT): _descriptor(PrimitiveInstruction.INVERT, "INVERT", InstructionCategory.COMPARISON_BITWISE, "Bitwise invert top of stack.", requirements=_stack_req(1, 1, "unary_transform")),
-        int(PrimitiveInstruction.EXIT): _descriptor(PrimitiveInstruction.EXIT, "EXIT", InstructionCategory.DICTIONARY_COMPILER, "Return from the current threaded word.", requirements=_return_req(min_return_stack_in=1, kernel="exit")),
+        int(PrimitiveInstruction.EXIT): _descriptor(PrimitiveInstruction.EXIT, "EXIT", InstructionCategory.DICTIONARY_COMPILER, "Return from the current threaded word.", requirements=_return_req(min_return_stack_in=1, needs_execution_control=True, kernel="exit")),
         int(PrimitiveInstruction.STORE): _descriptor(PrimitiveInstruction.STORE, "!", InstructionCategory.MEMORY, "Store a cell through an address.", requirements=_stack_req(2, 0, "store_cell")),
         int(PrimitiveInstruction.FETCH): _descriptor(PrimitiveInstruction.FETCH, "@", InstructionCategory.MEMORY, "Fetch a cell through an address.", requirements=_stack_req(1, 1, "fetch_cell")),
         int(PrimitiveInstruction.ADDSTORE): _descriptor(PrimitiveInstruction.ADDSTORE, "+!", InstructionCategory.MEMORY, "Add to a cell through an address.", requirements=_stack_req(2, 0, "update_cell")),

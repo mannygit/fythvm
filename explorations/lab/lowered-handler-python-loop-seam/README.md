@@ -91,9 +91,8 @@ The lab now also has the next seam surfaces ready for threaded entry:
 - the lowered wrapper can inject `CurrentWordThreadIR` for handlers that declare
   `needs_current_xt=True`
 
-Backend choice stays lab-local, but most words in the current scenarios now route
-through lowered wrappers while `EXIT` still runs in Python against the same shared
-state.
+Backend choice stays lab-local, and the active threaded-control scenarios now route
+through lowered wrappers all the way through `EXIT`.
 
 That means the seam is intentionally narrow:
 
@@ -118,16 +117,16 @@ docker compose run --rm dev uv run python explorations/lab/lowered-handler-pytho
 
 The run prints:
 
-- the generated LLVM IR for the lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `HALT` handlers
+- the generated LLVM IR for the lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, `EXIT`, and `HALT` handlers
 - a `HALT`-only scenario
 - a scenario where the JIT handles `LIT`, `ADD`, and `HALT`
 - a scenario where the JIT handles `LIT`, `BRANCH`, and `HALT`
 - a scenario where the JIT handles `LIT`, `0BRANCH`, and `HALT`
-- a scenario where the JIT handles `DOCOL`, enters a child thread, and lets Python
-  handle `EXIT` against the same shared return-frame state
+- a scenario where the JIT handles `DOCOL`, enters a child thread, restores the
+  caller through lowered `EXIT`, and then halts
 - per-step traces with:
   - word
-  - backend (`python` or `jit`)
+  - backend
   - stack before/after
   - state flags before/after
 
@@ -155,7 +154,7 @@ This lab explicitly demonstrates the first promoted lowering ingredients in one 
 - logical bitfield control fields
 - promoted stack access
 - promoted thread cursor/jump/current-word-thread access
-- lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `HALT` bodies with injected
+- lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, `EXIT`, and `HALT` bodies with injected
   surfaces
 
 ## Pattern / Takeaway
@@ -169,8 +168,7 @@ If we want to start lowering very slowly, a good first seam is:
 
 This is especially clean for `HALT`, because the lowered handler can set a control bit
 and return without forcing arithmetic lowering, thread-cursor lowering, or a full
-native dispatch engine. It also keeps `EXIT` free to keep meaning return-stack
-behavior later, instead of smuggling a temporary halt approximation into that word.
+native dispatch engine.
 
 `LIT` proves the first real operand path: the op body reads one inline cell through a
 thread cursor and pushes it through the promoted stack view without owning wrapper
@@ -190,7 +188,7 @@ decision, while still staying far short of return-stack or `DOCOL` complexity.
 `DOCOL` is the next big seam because it finally exercises the other major metadata
 axis: `needs_current_xt` and `needs_return_stack`. The op body itself stays small, but
 shared state now has to carry enough information to enter a child thread and later let
-host-side `EXIT` restore the caller.
+lowered `EXIT` restore the caller.
 
 ## Non-Obvious Failure Modes
 
@@ -203,10 +201,9 @@ checks. This lab keeps backend choice in a small explicit lab registry and uses
 `HandlerRequirements` for what it was meant to do: declare the resources that the
 local op body needs.
 
-It is also easy to let `DOCOL` drag the whole model into an all-native return-stack
-design too early. This pass deliberately keeps `EXIT` in Python so the question stays
-about shared state and injected surfaces, not about committing the whole threaded
-return path to native code at once.
+It is also easy to let `DOCOL` and `EXIT` drag the whole model into a much larger
+native-dispatch rewrite too early. This pass still keeps the question narrower than
+that: shared state plus local op bodies, with Python continuing to own outer dispatch.
 
 It is also easy to let the local op body own wrapper termination. In this lab,
 `op_halt_ir(...)` and `op_lit_ir(...)` only emit their local effects; the wrapper adds
@@ -228,12 +225,11 @@ small on purpose so the host/JIT boundary stays obvious.
 
 - you already need native dispatch for most handlers
 - the interesting question is about tail calls, `musttail`, or threaded continuation
-- you need full native `EXIT` / return-stack semantics rather than a shared-state seam
+- you need a full native dispatch engine rather than a shared-state seam
 - you need performance answers instead of seam-shape answers
 
 ## Next Questions
 
-- When should `EXIT` move from host-side return-stack restoration into a lowered op?
 - Should the promoted thread-access layer grow a reusable current-thread replacement
   helper once `DOCOL` and `EXIT` both want it?
 - At what point does the Python loop stop being the right place for dispatch?

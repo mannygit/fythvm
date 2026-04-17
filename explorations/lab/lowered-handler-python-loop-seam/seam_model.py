@@ -104,7 +104,7 @@ SCENARIOS = (
         expected_trace_backends=("jit", "jit", "jit"),
     ),
     Scenario(
-        name="jit-docol-then-python-exit-then-jit-halt",
+        name="jit-docol-then-jit-exit-then-jit-halt",
         thread=(
             1000,
             int(dictionary.PrimitiveInstruction.HALT),
@@ -112,7 +112,7 @@ SCENARIOS = (
         expected_stack=(5,),
         expected_final_ip=1,
         expected_state_flags=STATE_HALT_REQUESTED,
-        expected_trace_backends=("jit", "jit", "jit", "jit", "python", "jit"),
+        expected_trace_backends=("jit", "jit", "jit", "jit", "jit", "jit"),
         custom_words=(
             WordSpec(
                 xt=1000,

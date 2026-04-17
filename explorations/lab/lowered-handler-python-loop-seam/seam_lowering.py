@@ -26,6 +26,7 @@ I32 = ir.IntType(32)
 LoweredOp = Callable[..., None]
 HALT_REQUESTED_BIT = I1(1)
 ENTRY_IP_BEFORE_HOST_ADVANCE = I32(-1)
+RETURN_IP_BEFORE_HOST_ADVANCE_DELTA = I32(1)
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,16 @@ class LoweredExecutionControlIR:
         self.state.thread_cells.store(thread.cells)
         self.state.thread_length.store(thread.length)
         self.state.ip.store(ENTRY_IP_BEFORE_HOST_ADVANCE)
+
+    def return_to_thread(self, *, thread: ThreadRefIR, return_ip: ir.Value) -> None:
+        self.state.thread_cells.store(thread.cells)
+        self.state.thread_length.store(thread.length)
+        resume_ip = self.builder.sub(
+            return_ip,
+            RETURN_IP_BEFORE_HOST_ADVANCE_DELTA,
+            name="resume_ip_before_host_advance",
+        )
+        self.state.ip.store(resume_ip)
 
 
 @dataclass(frozen=True)
@@ -199,6 +210,21 @@ def op_docol_ir(
     control.enter_thread(thread=current_word_thread.ref(), return_stack=return_stack)
 
 
+def op_exit_ir(
+    builder: ir.IRBuilder,
+    *,
+    return_stack: ReturnStackIR,
+    control: LoweredExecutionControlIR,
+    err: LoweredErrorExitIR,
+) -> None:
+    """Emit EXIT's local IR effect without owning wrapper termination."""
+
+    _ = builder
+    _ = err
+    thread, return_ip = return_stack.pop_frame()
+    control.return_to_thread(thread=thread, return_ip=return_ip)
+
+
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
     int(dictionary.PrimitiveInstruction.LIT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.LIT),
@@ -229,6 +255,12 @@ LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
         function_name="lowered_docol",
         op=op_docol_ir,
         note="push a return frame and enter the current word thread through lowered thread surfaces",
+    ),
+    int(dictionary.PrimitiveInstruction.EXIT): LoweredHandlerSpec(
+        handler_id=int(dictionary.PrimitiveInstruction.EXIT),
+        function_name="lowered_exit",
+        op=op_exit_ir,
+        note="pop one return frame and restore the caller thread through lowered control surfaces",
     ),
     int(dictionary.PrimitiveInstruction.HALT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.HALT),

@@ -967,7 +967,7 @@ def injected_resources(
         kwargs["thread_jump"] = ThreadJump(state)
     if req.needs_current_xt:
         kwargs["current_word_thread"] = CurrentWordThread(state, word_registry)
-    if req.needs_return_stack or descriptor.key == "EXIT":
+    if req.needs_execution_control or req.needs_return_stack:
         kwargs["control"] = ExecutionControl(state)
     if req.needs_error_exit:
         kwargs["err"] = error_exit

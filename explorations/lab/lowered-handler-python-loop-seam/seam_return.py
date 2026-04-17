@@ -60,6 +60,37 @@ class ReturnStackIR:
         getattr(self.state, self.rsp_field_name).store(new_rsp)
         return new_rsp
 
+    def pop_frame(self) -> tuple[ThreadRefIR, ir.Value]:
+        current_rsp = getattr(self.state, self.rsp_field_name).load(name="rsp")
+
+        thread_cells_ptr = _array_slot_ptr(
+            builder=self.builder,
+            array_field=getattr(self.state, self.thread_cells_field_name),
+            index=current_rsp,
+            slot_name="popped_thread_cells_ptr",
+        )
+        thread_cells = self.builder.load(thread_cells_ptr, name="popped_thread_cells")
+
+        thread_length_ptr = _array_slot_ptr(
+            builder=self.builder,
+            array_field=getattr(self.state, self.thread_length_field_name),
+            index=current_rsp,
+            slot_name="popped_thread_length_ptr",
+        )
+        thread_length = self.builder.load(thread_length_ptr, name="popped_thread_length")
+
+        return_ip_ptr = _array_slot_ptr(
+            builder=self.builder,
+            array_field=getattr(self.state, self.return_ip_field_name),
+            index=current_rsp,
+            slot_name="popped_return_ip_ptr",
+        )
+        return_ip = self.builder.load(return_ip_ptr, name="popped_return_ip")
+
+        next_rsp = self.builder.add(current_rsp, I32(1), name="next_rsp")
+        getattr(self.state, self.rsp_field_name).store(next_rsp)
+        return ThreadRefIR(cells=thread_cells, length=thread_length), return_ip
+
 
 def return_stack_depth(state) -> int:
     return RETURN_STACK_CAPACITY - int(state.rsp)

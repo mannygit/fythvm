@@ -7,7 +7,7 @@ from fythvm import dictionary
 
 from seam_lowering import LOWERED_HANDLER_SPECS
 from seam_model import Scenario, ScenarioResult, TraceRow, WordSpec
-from seam_return import pop_return_frame, return_stack_depth
+from seam_return import return_stack_depth
 from seam_state import (
     LoweredLoopState,
     RETURN_STACK_CAPACITY,
@@ -175,10 +175,7 @@ def execute_scenario(
         stack_before = stack_snapshot(state)
         flags_before = state_flags_value(state)
 
-        if descriptor.key == "EXIT":
-            backend = "python"
-            note = python_exit(state)
-        elif descriptor.handler_id in LOWERED_HANDLER_SPECS:
+        if descriptor.handler_id in LOWERED_HANDLER_SPECS:
             backend = "jit"
             lowered_functions[descriptor.handler_id](state_ptr)
             note = LOWERED_HANDLER_SPECS[descriptor.handler_id].note
@@ -260,14 +257,3 @@ def resolve_word_descriptor(
         raise RuntimeError(f"no descriptor for xt {xt}")
     return descriptor, descriptor.key
 
-
-def python_exit(state: LoweredLoopState) -> str:
-    frame = pop_return_frame(state)
-    if frame is None:
-        state.halt_requested = 1
-        return "return from top level by halting"
-
-    state.thread_cells = frame.thread_cells
-    state.thread_length = frame.thread_length
-    state.ip = frame.return_ip - 1
-    return f"return to caller ip {frame.return_ip}"

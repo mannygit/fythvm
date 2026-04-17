@@ -138,6 +138,7 @@ def test_instruction_registry_exposes_return_stack_requirements() -> None:
 
     assert descriptor is not None
     assert descriptor.requirements.needs_return_stack is True
+    assert descriptor.requirements.needs_execution_control is True
     assert descriptor.requirements.min_return_stack_in == 1
     assert descriptor.requirements.kernel == "exit"
 
