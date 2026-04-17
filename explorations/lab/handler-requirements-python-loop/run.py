@@ -16,6 +16,7 @@ class Scenario:
     name: str
     text: str
     thread: tuple[int, ...]
+    expected_decompile: tuple[str, ...]
     expected_stack: tuple[int, ...]
     expected_halted: bool
     expected_final_ip: int
@@ -41,6 +42,7 @@ class TraceRow:
 
 @dataclass(frozen=True)
 class ScenarioResult:
+    decompiled_thread: tuple[str, ...]
     final_stack: tuple[int, ...]
     halted: bool
     final_ip: int
@@ -213,6 +215,12 @@ SCENARIOS = (
             int(dictionary.PrimitiveInstruction.ADD),
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
+        expected_decompile=(
+            "0: LIT 2",
+            "2: LIT 3",
+            "4: +",
+            "5: EXIT",
+        ),
         expected_stack=(5,),
         expected_halted=True,
         expected_final_ip=5,
@@ -227,6 +235,11 @@ SCENARIOS = (
             2,
             int(dictionary.PrimitiveInstruction.ADD),
             int(dictionary.PrimitiveInstruction.EXIT),
+        ),
+        expected_decompile=(
+            "0: LIT 2",
+            "2: +",
+            "3: EXIT",
         ),
         expected_stack=(2,),
         expected_halted=False,
@@ -246,6 +259,12 @@ SCENARIOS = (
             999,
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
+        expected_decompile=(
+            "0: LIT 7",
+            "2: BRANCH 2",
+            "4: LIT 999",
+            "6: EXIT",
+        ),
         expected_stack=(7,),
         expected_halted=True,
         expected_final_ip=6,
@@ -264,6 +283,12 @@ SCENARIOS = (
             999,
             int(dictionary.PrimitiveInstruction.EXIT),
         ),
+        expected_decompile=(
+            "0: LIT 0",
+            "2: 0BRANCH 2",
+            "4: LIT 999",
+            "6: EXIT",
+        ),
         expected_stack=(),
         expected_halted=True,
         expected_final_ip=6,
@@ -271,6 +296,56 @@ SCENARIOS = (
         expected_trace_words=("LIT", "0BRANCH", "EXIT"),
     ),
 )
+
+
+def litstring_payload_cells(length: int) -> int:
+    """Return how many 32-bit cells are needed for one inline string payload."""
+
+    return (length + 3) // 4
+
+
+def decompile_thread(thread: tuple[int, ...]) -> tuple[str, ...]:
+    """Render one linear thread into human-readable instruction rows."""
+
+    lines: list[str] = []
+    ip = 0
+
+    while ip < len(thread):
+        handler_id = int(thread[ip])
+        descriptor = dictionary.instruction_descriptor_for_handler_id(handler_id)
+        if descriptor is None:
+            lines.append(f"{ip}: <unknown {handler_id}>")
+            ip += 1
+            continue
+
+        key = descriptor.key
+        if key in {"LIT", "BRANCH", "0BRANCH"}:
+            operand_ip = ip + 1
+            if operand_ip >= len(thread):
+                lines.append(f"{ip}: {key} <missing-inline-cell>")
+                break
+            operand = int(thread[operand_ip])
+            lines.append(f"{ip}: {key} {operand}")
+            ip = operand_ip + 1
+            continue
+
+        if key == "LITSTRING":
+            length_ip = ip + 1
+            if length_ip >= len(thread):
+                lines.append(f"{ip}: LITSTRING <missing-length>")
+                break
+            length = int(thread[length_ip])
+            payload_start = length_ip + 1
+            payload_end = payload_start + litstring_payload_cells(length)
+            payload = tuple(int(cell) for cell in thread[payload_start:payload_end])
+            lines.append(f"{ip}: LITSTRING len={length} cells={payload}")
+            ip = payload_end
+            continue
+
+        lines.append(f"{ip}: {key}")
+        ip += 1
+
+    return tuple(lines)
 
 
 def injected_resources(
@@ -350,6 +425,7 @@ def step_once(state: LoopState) -> tuple[dictionary.InstructionDescriptor, list[
 
 def execute_scenario(scenario: Scenario) -> ScenarioResult:
     state = LoopState(thread=scenario.thread)
+    decompiled_thread = decompile_thread(scenario.thread)
     trace_rows: list[TraceRow] = []
 
     try:
@@ -376,6 +452,7 @@ def execute_scenario(scenario: Scenario) -> ScenarioResult:
             )
     except ExecutionFault as exc:
         return ScenarioResult(
+            decompiled_thread=decompiled_thread,
             final_stack=tuple(state.data_stack),
             halted=state.halted,
             final_ip=state.ip,
@@ -385,6 +462,7 @@ def execute_scenario(scenario: Scenario) -> ScenarioResult:
         )
 
     return ScenarioResult(
+        decompiled_thread=decompiled_thread,
         final_stack=tuple(state.data_stack),
         halted=state.halted,
         final_ip=state.ip,
@@ -395,6 +473,9 @@ def execute_scenario(scenario: Scenario) -> ScenarioResult:
 
 
 def assert_result_matches(scenario: Scenario, result: ScenarioResult) -> None:
+    assert result.decompiled_thread == scenario.expected_decompile, (
+        f"{scenario.name}: expected decompile {scenario.expected_decompile}, got {result.decompiled_thread}"
+    )
     assert result.final_stack == scenario.expected_stack, (
         f"{scenario.name}: expected stack {scenario.expected_stack}, got {result.final_stack}"
     )
@@ -416,8 +497,12 @@ def assert_result_matches(scenario: Scenario, result: ScenarioResult) -> None:
 def print_result_trace(scenario: Scenario, result: ScenarioResult) -> None:
     print(f"== {scenario.name.upper()} ==")
     print(f"thread: {scenario.text}")
+    print("decompile:")
+    for line in result.decompiled_thread:
+        print(f"  {line}")
     print(
         "expected:"
+        f" decompile={list(scenario.expected_decompile)}"
         f" stack={list(scenario.expected_stack)}"
         f" halted={scenario.expected_halted}"
         f" final_ip={scenario.expected_final_ip}"

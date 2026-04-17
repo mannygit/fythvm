@@ -3,8 +3,9 @@
 ## Question
 
 Can the current package metadata drive a tiny Python interpreter loop strongly enough
-to make the `LIT`, `+`, and `EXIT` execution shape visible without committing to a
-final runtime ABI or lowering pipeline?
+to make the `LIT`, `+`, and `EXIT` execution shape visible, while also supporting a
+small usable decompiler, without committing to a final runtime ABI or lowering
+pipeline?
 
 ## Setup
 
@@ -12,6 +13,7 @@ This lab stays deliberately small:
 
 - one thread represented as raw cells
 - one Python `LoopState` with `ip`, `current_xt`, and a data stack
+- one linear decompiler over the same raw thread cells
 - three wired handlers:
   - `LIT`
   - `+`
@@ -63,6 +65,7 @@ The output prints two scenarios:
 
 Each scenario now carries explicit expected outcomes:
 
+- expected decompiled thread rows
 - expected final stack
 - expected halted/error status
 - expected final `ip`
@@ -70,6 +73,7 @@ Each scenario now carries explicit expected outcomes:
 
 For each step the lab shows:
 
+- the linear decompiled thread
 - the current `ip`
 - the current word
 - the word family
@@ -78,8 +82,8 @@ For each step the lab shows:
 - the stack before and after the step
 - the concrete injected resources used for that handler call
 
-It also asserts the final result before printing the trace, so the lab is not relying
-on manual eyeballing alone anymore.
+It also asserts the decompile result and the final execution result before printing
+the trace, so the lab is not relying on manual eyeballing alone anymore.
 
 That makes the current metadata story visible in one place:
 
@@ -110,6 +114,8 @@ The key boundary is still the same:
 - the loop/dispatcher owns control flow
 - the handler body owns only the local effect
 - reusable stack-shape kernels sit between handler meaning and storage details
+- the decompiler owns linear thread reading and inline-operand rendering over the same
+  thread representation
 - one scenario spec plus one structured result object gives us a reusable validation
   harness for future ctypes or lowered backends
 
@@ -124,6 +130,11 @@ Another easy mistake is to read `min_data_stack_out_space` as the exact net stac
 effect. It is better understood here as a conservative preflight requirement for the
 current helper shape, not as a full algebra of stack deltas. That distinction matters
 once words both consume and produce values.
+
+It is also easy to write a decompiler that follows runtime control flow instead of
+rendering the linear thread layout. This lab keeps those separate on purpose:
+execution traces show which words actually ran, while the decompiler shows what is
+stored in the thread, including words that may be skipped by a branch.
 
 It is also easy to leave the lab in a misleading state by writing handlers directly as
 `pop/pop/push` against a Python list. That works, but it teaches the wrong lesson.
