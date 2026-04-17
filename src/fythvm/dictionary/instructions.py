@@ -12,8 +12,14 @@ with the shared-lowering vocabulary explored in:
 - ``docs/references/forth/primitive-stack-shape-synthesis.md``
 - ``explorations/lab/python-shared-stack-kernels/README.md``
 
-The first pass only assigns categories to the approved ``primitive-empty`` instruction
-set. Payload-bearing primitives and colon-thread instructions remain out of scope here.
+The first pass assigns full metadata to the current ``primitive-empty`` instruction set
+plus the first concrete non-empty/runtime-special cases:
+
+- ``LIT``
+- ``BRANCH``
+- ``0BRANCH``
+- ``LITSTRING``
+- ``DOCOL``
 """
 
 from __future__ import annotations
@@ -21,7 +27,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, IntEnum
 
-from .families import PRIMITIVE_EMPTY_FAMILY, WordFamily
+from .families import (
+    COLON_THREAD_FAMILY,
+    DEFAULT_INSTRUCTION_FAMILIES,
+    PRIMITIVE_EMPTY_FAMILY,
+    PRIMITIVE_INLINE_OPERAND_FAMILY,
+    WordFamily,
+)
 
 
 class AssociatedDataSource(Enum):
@@ -140,6 +152,11 @@ class PrimitiveInstruction(IntEnum):
     SYSCALL2 = 69
     SYSCALL1 = 70
     SYSCALL0 = 71
+    LIT = 72
+    BRANCH = 73
+    ZBRANCH = 74
+    LITSTRING = 75
+    DOCOL = 76
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,13 +197,14 @@ def _descriptor(
     category: InstructionCategory,
     description: str,
     *,
+    family: WordFamily = PRIMITIVE_EMPTY_FAMILY,
     associated_data_source: AssociatedDataSource = AssociatedDataSource.NONE,
     requirements: HandlerRequirements | None = None,
 ) -> InstructionDescriptor:
     return InstructionDescriptor(
         handler_id=int(handler_id),
         key=key,
-        family=PRIMITIVE_EMPTY_FAMILY,
+        family=family,
         category=category,
         associated_data_source=associated_data_source,
         requirements=HandlerRequirements() if requirements is None else requirements,
@@ -324,7 +342,89 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
         int(PrimitiveInstruction.SYSCALL2): _descriptor(PrimitiveInstruction.SYSCALL2, "SYSCALL2", InstructionCategory.HOST_BRIDGE, "Invoke a host syscall with two arguments.", requirements=_req(min_data_stack_in=3, min_data_stack_out_space=1, kernel="syscall2")),
         int(PrimitiveInstruction.SYSCALL1): _descriptor(PrimitiveInstruction.SYSCALL1, "SYSCALL1", InstructionCategory.HOST_BRIDGE, "Invoke a host syscall with one argument.", requirements=_req(min_data_stack_in=2, min_data_stack_out_space=1, kernel="syscall1")),
         int(PrimitiveInstruction.SYSCALL0): _descriptor(PrimitiveInstruction.SYSCALL0, "SYSCALL0", InstructionCategory.HOST_BRIDGE, "Invoke a host syscall with no arguments.", requirements=_req(min_data_stack_in=1, min_data_stack_out_space=1, kernel="syscall0")),
+        int(PrimitiveInstruction.LIT): _descriptor(
+            PrimitiveInstruction.LIT,
+            "LIT",
+            InstructionCategory.DICTIONARY_COMPILER,
+            "Read one inline thread cell and push it as a literal.",
+            family=PRIMITIVE_INLINE_OPERAND_FAMILY,
+            associated_data_source=AssociatedDataSource.INLINE_THREAD,
+            requirements=_req(
+                min_data_stack_out_space=1,
+                needs_ip=True,
+                kernel="inline_literal",
+            ),
+        ),
+        int(PrimitiveInstruction.BRANCH): _descriptor(
+            PrimitiveInstruction.BRANCH,
+            "BRANCH",
+            InstructionCategory.DICTIONARY_COMPILER,
+            "Read one inline branch offset from the current thread and continue there.",
+            family=PRIMITIVE_INLINE_OPERAND_FAMILY,
+            associated_data_source=AssociatedDataSource.INLINE_THREAD,
+            requirements=_req(
+                needs_ip=True,
+                kernel="inline_branch",
+            ),
+        ),
+        int(PrimitiveInstruction.ZBRANCH): _descriptor(
+            PrimitiveInstruction.ZBRANCH,
+            "0BRANCH",
+            InstructionCategory.DICTIONARY_COMPILER,
+            "Read one inline branch offset and branch when the top of stack is zero.",
+            family=PRIMITIVE_INLINE_OPERAND_FAMILY,
+            associated_data_source=AssociatedDataSource.INLINE_THREAD,
+            requirements=_req(
+                min_data_stack_in=1,
+                needs_ip=True,
+                kernel="inline_zero_branch",
+            ),
+        ),
+        int(PrimitiveInstruction.LITSTRING): _descriptor(
+            PrimitiveInstruction.LITSTRING,
+            "LITSTRING",
+            InstructionCategory.PARSER_IO,
+            "Read inline string data from the current thread and push addr len.",
+            family=PRIMITIVE_INLINE_OPERAND_FAMILY,
+            associated_data_source=AssociatedDataSource.INLINE_THREAD,
+            requirements=_req(
+                min_data_stack_out_space=2,
+                needs_ip=True,
+                kernel="inline_string_literal",
+            ),
+        ),
+        int(PrimitiveInstruction.DOCOL): _descriptor(
+            PrimitiveInstruction.DOCOL,
+            "DOCOL",
+            InstructionCategory.DICTIONARY_COMPILER,
+            "Enter the thread rooted at the current word's DFA.",
+            family=COLON_THREAD_FAMILY,
+            associated_data_source=AssociatedDataSource.WORD_LOCAL_DFA,
+            requirements=_req(
+                min_return_stack_out_space=1,
+                needs_current_xt=True,
+                needs_return_stack=True,
+                kernel="enter_thread",
+            ),
+        ),
     }
+)
+
+DEFAULT_INSTRUCTION_FAMILIES.register(
+    int(PrimitiveInstruction.LIT),
+    PRIMITIVE_INLINE_OPERAND_FAMILY,
+)
+DEFAULT_INSTRUCTION_FAMILIES.register_many(
+    (
+        int(PrimitiveInstruction.BRANCH),
+        int(PrimitiveInstruction.ZBRANCH),
+        int(PrimitiveInstruction.LITSTRING),
+    ),
+    PRIMITIVE_INLINE_OPERAND_FAMILY,
+)
+DEFAULT_INSTRUCTION_FAMILIES.register(
+    int(PrimitiveInstruction.DOCOL),
+    COLON_THREAD_FAMILY,
 )
 
 

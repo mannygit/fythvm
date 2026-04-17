@@ -1,0 +1,7 @@
+slug = "handler-requirements-python-loop"
+title = "HandlerRequirements-driven Python loop"
+summary = "Show a tiny Python interpreter loop driven by family metadata, associated-data source, and HandlerRequirements."
+status = "stable"
+tags = ["python", "execution", "metadata", "handler-requirements", "dispatch"]
+run = "uv run python explorations/lab/handler-requirements-python-loop/run.py"
+agent_authored = true

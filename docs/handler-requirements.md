@@ -80,7 +80,9 @@ This is still a design sketch, not yet package code.
 ### Injected Runtime Resources
 
 - `needs_ip`
-  - the handler reads inline data from the current thread
+  - current code spelling for "this handler needs thread-position access"
+  - this is likely too coarse long-term and probably wants to split into cursor-like
+    and jump-like thread capabilities
 - `needs_current_xt`
   - the handler recovers word-local data via `current_xt -> DFA`
 - `needs_return_stack`
@@ -131,7 +133,8 @@ Examples:
   - likely requirements:
     - `min_data_stack_in=0`
     - `min_data_stack_out_space=1`
-    - `needs_ip=True`
+    - `needs_ip=True` for now, though the real need is closer to a thread-cursor
+      capability than a raw `ip` integer
     - `needs_error_exit=True`
 
 - `EXIT`
@@ -162,7 +165,7 @@ The intended lowering style is:
 Example shape:
 
 ```python
-def lower_lit(builder, *, data_stack, ip, err):
+def lower_lit(builder, *, data_stack, thread_cursor, err):
     ...
 ```
 
@@ -171,6 +174,8 @@ Important invariants:
 - resources are injected because they were declared
 - positional ABI differences are not used to distinguish handlers
 - continuation remains an outer framework responsibility
+- inline-operand handlers should consume thread data through a helper/cursor surface,
+  not by returning a synthetic `next_ip`
 
 ## Kernels And Shared Lowering Shapes
 
@@ -213,5 +218,6 @@ The remaining open points here are intentionally narrow.
 - the minimal stable field set for package code
 - the first kernel ids/lookups to standardize
 - the exact injection convention for lowering functions
+- whether `needs_ip` should split into thread-cursor and thread-jump capabilities
 - how preflight checks, wrong-mode exits, and error exits are factored around handler
   bodies
