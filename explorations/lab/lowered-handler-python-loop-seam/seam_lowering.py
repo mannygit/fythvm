@@ -131,6 +131,23 @@ def op_branch_ir(
     thread_jump.branch_relative(offset)
 
 
+def op_zbranch_ir(
+    builder: ir.IRBuilder,
+    *,
+    data_stack: BoundStackAccess,
+    thread_cursor: ThreadCursorIR,
+    thread_jump: ThreadJumpIR,
+    err: LoweredErrorExitIR,
+) -> None:
+    """Emit 0BRANCH's local IR effect without owning wrapper termination."""
+
+    _ = err
+    condition = data_stack.peek(name="zbranch_condition")
+    offset = thread_cursor.read_inline_cell()
+    data_stack.drop(name="zbranch_next_sp")
+    thread_jump.branch_if_zero(condition, offset)
+
+
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
     int(dictionary.PrimitiveInstruction.LIT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.LIT),
@@ -149,6 +166,12 @@ LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
         function_name="lowered_branch",
         op=op_branch_ir,
         note="read one inline branch offset and redirect ip through the lowered thread surfaces",
+    ),
+    int(dictionary.PrimitiveInstruction.ZBRANCH): LoweredHandlerSpec(
+        handler_id=int(dictionary.PrimitiveInstruction.ZBRANCH),
+        function_name="lowered_zbranch",
+        op=op_zbranch_ir,
+        note="pop one stack cell, read one inline branch offset, and redirect ip when the value is zero",
     ),
     int(dictionary.PrimitiveInstruction.HALT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.HALT),

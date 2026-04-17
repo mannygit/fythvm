@@ -12,7 +12,7 @@ This lab keeps almost everything in Python:
 
 - the thread is a tuple of raw cells
 - the dispatch loop is Python
-- `LIT`, `ADD`, `BRANCH`, and `HALT` are lowered through wrapper functions in this pass
+- `LIT`, `ADD`, `BRANCH`, `0BRANCH`, and `HALT` are lowered through wrapper functions in this pass
 - the host-visible machine state is a tiny `ctypes.Structure`
 - the lowered wrapper reifies that `ctypes` layout through the promoted
   `StructHandle.from_ctypes(...)` helper in package code
@@ -44,7 +44,7 @@ The lab is split by concern inside its directory:
 - `run.py`
   - the small orchestrating entrypoint
 
-`HALT`, `LIT`, `ADD`, and `BRANCH` are now lowered. Their generated wrapper functions take a pointer to
+`HALT`, `LIT`, `ADD`, `BRANCH`, and `0BRANCH` are now lowered. Their generated wrapper functions take a pointer to
 that shared state and return normally to Python.
 
 The important wiring detail is that `HandlerRequirements` is used for injected
@@ -58,6 +58,9 @@ surfaces, not backend policy:
   the promoted `BoundStackAccess.binary_reduce(...)` helper
 - `BRANCH` declares `needs_thread_cursor=True` and `needs_thread_jump=True`
 - the lowered op body is shaped like `op_branch_ir(builder, *, thread_cursor, thread_jump, err)`
+- `0BRANCH` declares stack ingress plus `needs_thread_cursor=True` and
+  `needs_thread_jump=True`
+- the lowered op body is shaped like `op_zbranch_ir(builder, *, data_stack, thread_cursor, thread_jump, err)`
 - the wrapper function injects `control` and `err` from the descriptor requirements
 - the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
   when the descriptor requirements ask for them
@@ -101,10 +104,11 @@ docker compose run --rm dev uv run python explorations/lab/lowered-handler-pytho
 
 The run prints:
 
-- the generated LLVM IR for the lowered `LIT`, `ADD`, `BRANCH`, and `HALT` handlers
+- the generated LLVM IR for the lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, and `HALT` handlers
 - a `HALT`-only scenario
 - a scenario where the JIT handles `LIT`, `ADD`, and `HALT`
 - a scenario where the JIT handles `LIT`, `BRANCH`, and `HALT`
+- a scenario where the JIT handles `LIT`, `0BRANCH`, and `HALT`
 - per-step traces with:
   - word
   - backend (`python` or `jit`)
@@ -158,9 +162,12 @@ termination or outer dispatch.
 shape over the same promoted stack view without introducing branch or return-stack
 concerns.
 
-`BRANCH` is the next good lowered control step because it proves the first lowered
-thread-jump surface without yet bringing in conditional control or return-stack
-semantics.
+`BRANCH` is the first lowered control step because it proves the thread-jump
+surface without yet bringing in conditional control or return-stack semantics.
+
+`0BRANCH` is the natural follow-on because it proves that the same lowered
+thread-jump surface composes cleanly with a real stack input and a conditional
+decision, while still staying far short of return-stack or `DOCOL` complexity.
 
 ## Non-Obvious Failure Modes
 

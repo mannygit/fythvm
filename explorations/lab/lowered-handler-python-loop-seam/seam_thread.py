@@ -40,6 +40,13 @@ class ThreadJumpIR:
         target_ip = self.builder.add(current_ip, offset, name="branch_target_ip")
         self.state.ip.store(target_ip)
 
+    def branch_if_zero(self, value: ir.Value, offset: ir.Value) -> None:
+        current_ip = self.state.ip.load(name="zbranch_ip")
+        target_ip = self.builder.add(current_ip, offset, name="zbranch_target_ip")
+        should_branch = self.builder.icmp_signed("==", value, I32(0), name="zbranch_is_zero")
+        next_ip = self.builder.select(should_branch, target_ip, current_ip, name="zbranch_next_ip")
+        self.state.ip.store(next_ip)
+
 
 def materialize_thread_buffer(thread: tuple[int, ...]) -> ctypes.Array[ctypes.c_int32]:
     return (ctypes.c_int32 * len(thread))(*thread)

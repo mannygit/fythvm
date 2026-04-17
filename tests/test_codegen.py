@@ -588,6 +588,33 @@ def test_struct_view_stack_access_supports_binary_reduce() -> None:
     assert ctx.stack[3] == 12
 
 
+def test_struct_view_stack_access_supports_drop() -> None:
+    configure_llvm()
+
+    ctx_handle = StructHandle.literal("tiny stack context", ir.ArrayType(I16, 4), I32, view_type=TinyStackView)
+    module = ir.Module(name="stack_drop_test")
+    module.triple = binding.get_default_triple()
+
+    apply_fn = ir.Function(module, ir.FunctionType(I32, [ctx_handle.ir_type.as_pointer(), I16]), name="apply_drop")
+    builder = ir.IRBuilder(apply_fn.append_basic_block("entry"))
+    ctx = ctx_handle.bind(builder, apply_fn.args[0])
+    stack = StructViewStackAccess(ctx).bind(builder)
+    stack.reset(I32(4))
+    stack.push(apply_fn.args[1], name="push_value_sp")
+    new_sp = stack.drop(name="drop_sp")
+    builder.ret(new_sp)
+
+    compiled = compile_ir_module(module)
+    apply_drop = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.POINTER(TinyStackContext), ctypes.c_int16)(
+        compiled.function_address("apply_drop")
+    )
+
+    ctx = TinyStackContext()
+    result = apply_drop(ctypes.byref(ctx), 7)
+    assert result == 4
+    assert ctx.sp == 4
+
+
 def test_struct_view_stack_access_shape_predicates_follow_stack_capacity() -> None:
     configure_llvm()
 

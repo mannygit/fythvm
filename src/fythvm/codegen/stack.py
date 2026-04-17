@@ -42,6 +42,9 @@ class BoundStackAccess:
     def push(self, value: ir.Value, *, name: str = "new_sp") -> ir.Value:
         return self.access.push(self.builder, value, name=name)
 
+    def drop(self, *, name: str = "new_sp") -> ir.Value:
+        return self.access.drop(self.builder, name=name)
+
     def pop2(self, *, result_index_name: str = "lhs_index") -> PoppedPair:
         return self.access.pop2(self.builder, result_index_name=result_index_name)
 
@@ -100,6 +103,12 @@ class AbstractStackAccess:
         current_sp = self.load_sp(builder)
         new_sp = builder.sub(current_sp, I32(1), name=name)
         builder.store(value, self.slot(builder, new_sp))
+        self.store_sp(builder, new_sp)
+        return new_sp
+
+    def drop(self, builder: ir.IRBuilder, *, name: str = "new_sp") -> ir.Value:
+        current_sp = self.load_sp(builder)
+        new_sp = builder.add(current_sp, I32(1), name=name)
         self.store_sp(builder, new_sp)
         return new_sp
 
