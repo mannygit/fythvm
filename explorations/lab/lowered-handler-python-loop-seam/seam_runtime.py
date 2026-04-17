@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from fythvm import dictionary
 
 from seam_lowering import LOWERED_HANDLER_SPECS
-from seam_model import Scenario, ScenarioResult, TraceRow, WordSpec
+from seam_model import ResolvedWord, Scenario, ScenarioResult, ThreadCellToken, TraceRow
 from seam_return import return_stack_depth
 from seam_state import (
     LoweredLoopState,
@@ -21,6 +21,61 @@ from seam_thread import materialize_thread_buffer
 class ThreadRecord:
     name: str
     thread: tuple[int, ...]
+
+
+def dictionary_thread_ptr(memory: dictionary.DictionaryMemory, cell_index: int) -> ctypes._Pointer[ctypes.c_int32]:  # type: ignore[attr-defined]
+    return ctypes.cast(memory.get_cell_addr(cell_index), ctypes.POINTER(ctypes.c_int32))
+
+
+def resolve_thread_tokens(
+    tokens: tuple[ThreadCellToken, ...],
+    *,
+    words_by_name: dict[str, dictionary.WordRecord],
+) -> tuple[int, ...]:
+    resolved: list[int] = []
+    for token in tokens:
+        if isinstance(token, str):
+            if token not in words_by_name:
+                raise RuntimeError(f"unknown word token {token!r}")
+            resolved.append(words_by_name[token].cfa_index)
+        else:
+            resolved.append(int(token))
+    return tuple(resolved)
+
+
+def materialize_dictionary_words(
+    scenario: Scenario,
+) -> tuple[dictionary.DictionaryRuntime, tuple[ResolvedWord, ...], tuple[int, ...]]:
+    runtime = dictionary.DictionaryRuntime()
+    words_by_name: dict[str, dictionary.WordRecord] = {}
+
+    for blueprint in scenario.custom_words:
+        data_arity = len(blueprint.thread)
+        word = runtime.create_word(
+            blueprint.name,
+            handler_id=blueprint.handler_id,
+            data=(0,) * data_arity,
+        )
+        words_by_name[blueprint.name] = word
+
+    resolved_words: list[ResolvedWord] = []
+    for blueprint in scenario.custom_words:
+        word = words_by_name[blueprint.name]
+        resolved_thread = resolve_thread_tokens(blueprint.thread, words_by_name=words_by_name)
+        for offset, cell in enumerate(resolved_thread):
+            runtime.memory.store_cell(word.dfa_index + offset, cell)
+        resolved_words.append(
+            ResolvedWord(
+                xt=word.cfa_index,
+                name=blueprint.name,
+                handler_id=blueprint.handler_id,
+                dfa_index=word.dfa_index,
+                thread=resolved_thread,
+            )
+        )
+
+    resolved_entry_thread = resolve_thread_tokens(scenario.thread, words_by_name=words_by_name)
+    return runtime, tuple(resolved_words), resolved_entry_thread
 
 
 def stack_snapshot(state: LoweredLoopState) -> tuple[int, ...]:
@@ -80,7 +135,7 @@ def ensure_return_stack_requirements(
 def decompile_thread(
     thread: tuple[int, ...],
     *,
-    custom_words: tuple[WordSpec, ...] = (),
+    custom_words: tuple[ResolvedWord, ...] = (),
 ) -> tuple[str, ...]:
     lines: list[str] = []
     ip = 0
@@ -129,26 +184,24 @@ def execute_scenario(
     scenario: Scenario,
     lowered_functions: dict[int, ctypes._CFuncPtr],  # type: ignore[attr-defined]
 ) -> ScenarioResult:
+    dictionary_runtime, resolved_words, resolved_entry_thread = materialize_dictionary_words(scenario)
     state = LoweredLoopState()
     state.sp = STACK_CAPACITY
     state.rsp = RETURN_STACK_CAPACITY
 
-    entry_buffer = materialize_thread_buffer(scenario.thread)
+    entry_buffer = materialize_thread_buffer(resolved_entry_thread)
     entry_ptr = ctypes.cast(entry_buffer, ctypes.POINTER(ctypes.c_int32))
     state.thread_cells = entry_ptr
-    state.thread_length = len(scenario.thread)
+    state.thread_length = len(resolved_entry_thread)
 
-    thread_buffers: list[ctypes.Array[ctypes.c_int32]] = [entry_buffer]
     thread_records: dict[int, ThreadRecord] = {
-        pointer_key(entry_ptr): ThreadRecord(name="entry", thread=scenario.thread)
+        pointer_key(entry_ptr): ThreadRecord(name="entry", thread=resolved_entry_thread)
     }
-    custom_word_map = {word.xt: word for word in scenario.custom_words}
+    custom_word_map = {word.xt: word for word in resolved_words}
     custom_thread_ptrs: dict[int, ctypes._Pointer[ctypes.c_int32]] = {}  # type: ignore[attr-defined]
 
-    for word in scenario.custom_words:
-        buffer = materialize_thread_buffer(word.thread)
-        ptr = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_int32))
-        thread_buffers.append(buffer)
+    for word in resolved_words:
+        ptr = dictionary_thread_ptr(dictionary_runtime.memory, word.dfa_index)
         thread_records[pointer_key(ptr)] = ThreadRecord(name=word.name, thread=word.thread)
         custom_thread_ptrs[word.xt] = ptr
 
@@ -208,6 +261,8 @@ def execute_scenario(
             state.ip = int(state.ip) + 1
 
     return ScenarioResult(
+        resolved_thread=resolved_entry_thread,
+        resolved_words=resolved_words,
         final_stack=stack_snapshot(state),
         final_ip=int(state.ip),
         state_flags=state_flags_value(state),
@@ -250,7 +305,7 @@ def current_thread_record(
 
 def resolve_word_descriptor(
     xt: int,
-    custom_word_map: dict[int, WordSpec],
+    custom_word_map: dict[int, ResolvedWord],
 ) -> tuple[dictionary.InstructionDescriptor, str]:
     if xt in custom_word_map:
         word = custom_word_map[xt]

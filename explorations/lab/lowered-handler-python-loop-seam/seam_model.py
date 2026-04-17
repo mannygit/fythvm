@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypeAlias
 
 from fythvm import dictionary
 
 from seam_state import STATE_HALT_REQUESTED
 
+ThreadCellToken: TypeAlias = int | str
+
 
 @dataclass(frozen=True)
 class Scenario:
     name: str
-    thread: tuple[int, ...]
+    thread: tuple[ThreadCellToken, ...]
     expected_stack: tuple[int, ...]
     expected_final_ip: int
     expected_state_flags: int
     expected_trace_backends: tuple[str, ...]
-    custom_words: tuple["WordSpec", ...] = ()
+    custom_words: tuple["WordBlueprint", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,8 @@ class TraceRow:
 
 @dataclass(frozen=True)
 class ScenarioResult:
+    resolved_thread: tuple[int, ...]
+    resolved_words: tuple["ResolvedWord", ...]
     final_stack: tuple[int, ...]
     final_ip: int
     state_flags: int
@@ -40,10 +45,18 @@ class ScenarioResult:
 
 
 @dataclass(frozen=True)
-class WordSpec:
+class WordBlueprint:
+    name: str
+    handler_id: int
+    thread: tuple[ThreadCellToken, ...]
+
+
+@dataclass(frozen=True)
+class ResolvedWord:
     xt: int
     name: str
     handler_id: int
+    dfa_index: int
     thread: tuple[int, ...]
 
 
@@ -106,7 +119,7 @@ SCENARIOS = (
     Scenario(
         name="jit-docol-then-jit-exit-then-jit-halt",
         thread=(
-            1000,
+            "SUM23",
             int(dictionary.PrimitiveInstruction.HALT),
         ),
         expected_stack=(5,),
@@ -114,8 +127,7 @@ SCENARIOS = (
         expected_state_flags=STATE_HALT_REQUESTED,
         expected_trace_backends=("jit", "jit", "jit", "jit", "jit", "jit"),
         custom_words=(
-            WordSpec(
-                xt=1000,
+            WordBlueprint(
                 name="SUM23",
                 handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
                 thread=(

@@ -14,11 +14,11 @@ def print_scenario(
 ) -> None:
     print(f"== {scenario.name.upper()} ==")
     print("thread:")
-    for line in decompile_thread(scenario.thread, custom_words=scenario.custom_words):
+    for line in decompile_thread(result.resolved_thread, custom_words=result.resolved_words):
         print(f"  {line}")
-    for word in scenario.custom_words:
+    for word in result.resolved_words:
         print(f"word {word.name}:")
-        for line in decompile_thread(word.thread, custom_words=scenario.custom_words):
+        for line in decompile_thread(word.thread, custom_words=result.resolved_words):
             print(f"  {line}")
     halt_id = int(dictionary.PrimitiveInstruction.HALT)
     if halt_id in lowered_addresses:

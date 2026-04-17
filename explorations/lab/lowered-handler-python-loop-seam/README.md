@@ -32,6 +32,14 @@ This lab is the direct lowering follow-on to
 It reuses promoted learnings from that semantic/reference lab rather than inventing a
 parallel model.
 
+It now also kicks the tires of the promoted dictionary runtime for custom words:
+
+- scenario-local custom words are allocated through `DictionaryRuntime`
+- their real `cfa_index` values are used as `xt`s in the entry thread
+- their real `dfa_index` cells back the child thread that lowered `DOCOL` enters
+- the seam no longer invents a fake custom-word `xt` plus a separate child-thread
+  buffer just to make threaded entry work
+
 The lab is split by concern inside its directory:
 
 - `seam_state.py`
@@ -73,7 +81,7 @@ surfaces, not backend policy:
 - the wrapper function injects `control` and `err` from the descriptor requirements
 - the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
   when the descriptor requirements ask for them
-- the wrapper now also injects promoted `CurrentWordThreadIR` plus a lab-local
+- the wrapper now also injects promoted `CurrentWordThreadIR` plus promoted
   `ReturnStackIR` when `DOCOL` asks for them
 - the wrapper, not `op_halt_ir(...)`, adds the final `ret void`
 - the host-visible state projection is generated from ctypes layout, including logical
