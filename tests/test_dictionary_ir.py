@@ -4,13 +4,20 @@ import ctypes
 
 from llvmlite import binding, ir
 
-from fythvm.codegen import compile_ir_module, configure_llvm
-from fythvm.dictionary import DictionaryIR, DictionaryMemory, DictionaryRuntime, NULL_INDEX
+from fythvm.codegen import StructHandle, compile_ir_module, configure_llvm
+from fythvm.dictionary import CurrentWordIR, DictionaryIR, DictionaryMemory, DictionaryRuntime, NULL_INDEX
 from fythvm.dictionary.layout import dictionary_memory_handle
 
 
 I8 = ir.IntType(8)
 I32 = ir.IntType(32)
+
+
+class TinyCurrentWordState(ctypes.Structure):
+    _fields_ = [
+        ("dictionary_memory", ctypes.POINTER(DictionaryMemory)),
+        ("current_xt", ctypes.c_int32),
+    ]
 
 
 def _byte_global(module: ir.Module, name: str, payload: bytes) -> ir.GlobalVariable:
@@ -169,3 +176,92 @@ def test_dictionary_ir_find_word_by_cfa_prefers_real_dictionary_word() -> None:
     assert find_word_by_cfa(ctypes.byref(runtime.memory), older.cfa_index) == older.index
     assert find_word_by_cfa(ctypes.byref(runtime.memory), newer.cfa_index) == newer.index
     assert find_word_by_cfa(ctypes.byref(runtime.memory), 999) == NULL_INDEX
+
+
+def test_current_word_ir_resolves_handler_id_for_primitive_and_custom_xt() -> None:
+    configure_llvm()
+
+    runtime = DictionaryRuntime()
+    custom = runtime.create_word("sum23", handler_id=76)
+    state_handle = StructHandle.from_ctypes("tiny current word state", TinyCurrentWordState)
+
+    module = ir.Module(name="current_word_ir_resolved_handler")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(module, ir.FunctionType(I32, [state_handle.ir_type.as_pointer()]), name="resolve_handler_id")
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    state = state_handle.bind(builder, fn.args[0])
+    dispatch_custom = fn.append_basic_block("dispatch_custom")
+    dispatch_primitive = fn.append_basic_block("dispatch_primitive")
+    dispatch_resolved = fn.append_basic_block("dispatch_resolved")
+
+    current_word = CurrentWordIR.resolve_from_state(
+        builder=builder,
+        state=state,
+        dispatch_custom_block=dispatch_custom,
+        dispatch_primitive_block=dispatch_primitive,
+        dispatch_resolved_block=dispatch_resolved,
+        name_prefix="test_current_word",
+    )
+
+    builder.position_at_end(dispatch_resolved)
+    builder.ret(current_word.resolved_handler_id)
+
+    compiled = compile_ir_module(module)
+    resolve_handler_id = ctypes.CFUNCTYPE(
+        ctypes.c_int32,
+        ctypes.POINTER(TinyCurrentWordState),
+    )(compiled.function_address("resolve_handler_id"))
+
+    state = TinyCurrentWordState(ctypes.pointer(runtime.memory), custom.cfa_index)
+    assert resolve_handler_id(ctypes.byref(state)) == 76
+
+    state.current_xt = 15
+    assert resolve_handler_id(ctypes.byref(state)) == 15
+
+
+def test_current_word_ir_resolves_thread_ref_from_cfa_and_length_table() -> None:
+    configure_llvm()
+
+    runtime = DictionaryRuntime()
+    word = runtime.create_word("sum23", handler_id=76, data=(101, 202, 303))
+    thread_lengths = (ctypes.c_int32 * 256)()
+    thread_lengths[word.cfa_index] = 3
+    state_handle = StructHandle.from_ctypes("tiny current word state", TinyCurrentWordState)
+
+    module = ir.Module(name="current_word_ir_thread_ref")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(
+        module,
+        ir.FunctionType(I32, [state_handle.ir_type.as_pointer(), I32.as_pointer()]),
+        name="read_thread_signature",
+    )
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    state = state_handle.bind(builder, fn.args[0])
+    dispatch_custom = fn.append_basic_block("dispatch_custom")
+    dispatch_primitive = fn.append_basic_block("dispatch_primitive")
+    dispatch_resolved = fn.append_basic_block("dispatch_resolved")
+
+    current_word = CurrentWordIR.resolve_from_state(
+        builder=builder,
+        state=state,
+        dispatch_custom_block=dispatch_custom,
+        dispatch_primitive_block=dispatch_primitive,
+        dispatch_resolved_block=dispatch_resolved,
+        name_prefix="test_current_word",
+    )
+
+    builder.position_at_end(dispatch_resolved)
+    thread_ref = current_word.thread_ref(fn.args[1], name_prefix="current_word")
+    first_cell = builder.load(thread_ref.cells, name="first_cell")
+    signature = builder.add(first_cell, builder.mul(thread_ref.length, I32(1000)), name="thread_signature")
+    builder.ret(signature)
+
+    compiled = compile_ir_module(module)
+    read_thread_signature = ctypes.CFUNCTYPE(
+        ctypes.c_int32,
+        ctypes.POINTER(TinyCurrentWordState),
+        ctypes.POINTER(ctypes.c_int32),
+    )(compiled.function_address("read_thread_signature"))
+
+    state = TinyCurrentWordState(ctypes.pointer(runtime.memory), word.cfa_index)
+    assert read_thread_signature(ctypes.byref(state), thread_lengths) == 3101

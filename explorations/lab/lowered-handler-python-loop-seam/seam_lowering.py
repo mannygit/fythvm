@@ -130,50 +130,6 @@ def lowered_run_function_name() -> str:
 
 
 @dataclass(frozen=True)
-class LoweredCurrentWordIR:
-    """Explicit W-like current-word facts for fetch, dispatch, and threaded entry."""
-
-    state: LoweredLoopStateView
-    dictionary_ir: dictionary.DictionaryIR
-    current_xt: ir.Value
-    found_word_index: ir.Value
-    resolved_handler_id: ir.Value
-
-    def is_custom_word(self) -> ir.Value:
-        return self.dictionary_ir.builder.icmp_signed(
-            "!=",
-            self.found_word_index,
-            I32(dictionary.NULL_INDEX),
-            name="current_word_is_custom",
-        )
-
-    def install_xt(self, xt: ir.Value) -> None:
-        self.state.current_xt.store(xt)
-
-    def thread_ref(self, *, thread_length_table_field_name: str = "word_thread_lengths") -> ThreadRefIR:
-        current_xt = self.state.current_xt.load(name="current_xt")
-        thread_cells = self.dictionary_ir.thread_cells_ptr_for_cfa(
-            current_xt,
-            name="current_word_thread_cells",
-        )
-        thread_length_table_field = getattr(self.state, thread_length_table_field_name)
-        thread_length_table = thread_length_table_field.load(name="word_thread_lengths")
-        thread_length_ptr = self.dictionary_ir.builder.gep(
-            thread_length_table,
-            [current_xt],
-            inbounds=True,
-            name="current_word_thread_length_ptr",
-        )
-        return ThreadRefIR(
-            cells=thread_cells,
-            length=self.dictionary_ir.builder.load(
-                thread_length_ptr,
-                name="current_word_thread_length",
-            ),
-        )
-
-
-@dataclass(frozen=True)
 class LoweredInterpreterEntrypoint:
     mode: "LoweredInterpreterMode"
     function_name: str
@@ -200,7 +156,7 @@ def injected_ir_resources(
     builder: ir.IRBuilder,
     state: LoweredLoopStateView,
     descriptor: dictionary.InstructionDescriptor,
-    current_word: LoweredCurrentWordIR | None = None,
+    current_word: dictionary.CurrentWordIR | None = None,
     labeled_continuation: SeamLabeledContinuationIR | None = None,
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {}
@@ -317,7 +273,7 @@ def op_zbranch_ir(
 def op_docol_ir(
     builder: ir.IRBuilder,
     *,
-    current_word: LoweredCurrentWordIR,
+    current_word: dictionary.CurrentWordIR,
     return_stack: ReturnStackIR,
     control: LoweredExecutionControlIR,
     err: LoweredErrorExitIR,
@@ -326,7 +282,11 @@ def op_docol_ir(
 
     _ = builder
     _ = err
-    control.enter_thread(thread=current_word.thread_ref(), return_stack=return_stack)
+    word_thread_lengths = current_word.state.word_thread_lengths.load(name="word_thread_lengths")
+    control.enter_thread(
+        thread=current_word.thread_ref(word_thread_lengths),
+        return_stack=return_stack,
+    )
     return None
 
 
@@ -350,7 +310,7 @@ def op_execute_ir(
     builder: ir.IRBuilder,
     *,
     data_stack: BoundStackAccess,
-    current_word: LoweredCurrentWordIR,
+    current_word: dictionary.CurrentWordIR,
     err: LoweredErrorExitIR,
 ) -> LoweredContinuationValue:
     """Emit EXECUTE by installing a new current xt and re-entering dispatch."""
@@ -429,48 +389,6 @@ def emit_fetch_current_xt(
     return current_xt
 
 
-def emit_resolved_handler_id(
-    *,
-    builder: ir.IRBuilder,
-    state: LoweredLoopStateView,
-    current_xt: ir.Value,
-    dispatch_custom_block: ir.Block,
-    dispatch_primitive_block: ir.Block,
-    dispatch_resolved_block: ir.Block,
-    name_prefix: str,
-) -> tuple[ir.Value, ir.Value, dictionary.DictionaryIR]:
-    dictionary_memory = state.dictionary_memory.load(name=f"{name_prefix}_dictionary_memory")
-    dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
-    found_word_index = dictionary_ir.find_word_by_cfa(current_xt)
-    found_custom_word = builder.icmp_signed(
-        "!=",
-        found_word_index,
-        I32(dictionary.NULL_INDEX),
-        name=f"{name_prefix}_found_custom_word",
-    )
-    builder.cbranch(found_custom_word, dispatch_custom_block, dispatch_primitive_block)
-
-    with builder.goto_block(dispatch_custom_block):
-        custom_dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
-        custom_word = custom_dictionary_ir.word(found_word_index)
-        custom_code_field = custom_word.code_field.bind(custom_dictionary_ir.code_field_handle)
-        custom_handler_id = builder.zext(
-            custom_code_field.handler_id.load(name=f"{name_prefix}_custom_handler_id_i7"),
-            I32,
-            name=f"{name_prefix}_custom_handler_id",
-        )
-        builder.branch(dispatch_resolved_block)
-
-    with builder.goto_block(dispatch_primitive_block):
-        builder.branch(dispatch_resolved_block)
-
-    with builder.goto_block(dispatch_resolved_block):
-        resolved_handler_id = builder.phi(I32, name=f"{name_prefix}_handler_id")
-        resolved_handler_id.add_incoming(custom_handler_id, dispatch_custom_block)
-        resolved_handler_id.add_incoming(current_xt, dispatch_primitive_block)
-        return found_word_index, resolved_handler_id, dictionary_ir
-
-
 def emit_dispatch_current_word(
     *,
     builder: ir.IRBuilder,
@@ -480,26 +398,16 @@ def emit_dispatch_current_word(
     dispatch_primitive_block: ir.Block,
     dispatch_resolved_block: ir.Block,
     name_prefix: str,
-) -> LoweredCurrentWordIR:
+) -> dictionary.CurrentWordIR:
     with builder.goto_block(dispatch_current_block):
-        current_xt = state.current_xt.load(name=f"{name_prefix}_current_xt")
-        found_word_index, resolved_handler_id, dictionary_ir = emit_resolved_handler_id(
+        return dictionary.CurrentWordIR.resolve_from_state(
             builder=builder,
             state=state,
-            current_xt=current_xt,
             dispatch_custom_block=dispatch_custom_block,
             dispatch_primitive_block=dispatch_primitive_block,
             dispatch_resolved_block=dispatch_resolved_block,
             name_prefix=name_prefix,
         )
-
-    return LoweredCurrentWordIR(
-        state=state,
-        dictionary_ir=dictionary_ir,
-        current_xt=current_xt,
-        found_word_index=found_word_index,
-        resolved_handler_id=resolved_handler_id,
-    )
 
 
 def _continuation_block_for_kind(
