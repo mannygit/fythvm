@@ -9,7 +9,6 @@ from llvmlite import ir
 from fythvm import dictionary
 from fythvm.codegen import (
     BoundStackAccess,
-    CurrentWordThreadIR,
     ReturnStackIR,
     StructViewStackAccess,
     ThreadCursorIR,
@@ -119,6 +118,27 @@ class LoweredHandlerSpec:
     note: str
 
 
+@dataclass(frozen=True)
+class CurrentXtDictionaryThreadIR:
+    """Resolve the current word's thread through real dictionary memory."""
+
+    state: LoweredLoopStateView
+    dictionary_ir: dictionary.DictionaryIR
+    thread_length_field_name: str = "current_word_thread_length"
+
+    def ref(self) -> ThreadRefIR:
+        current_xt = self.state.current_xt.load(name="current_xt")
+        thread_cells = self.dictionary_ir.thread_cells_ptr_for_cfa(
+            current_xt,
+            name="current_word_thread_cells",
+        )
+        thread_length_field = getattr(self.state, self.thread_length_field_name)
+        return ThreadRefIR(
+            cells=thread_cells,
+            length=thread_length_field.load(name="current_word_thread_length"),
+        )
+
+
 def injected_ir_resources(
     *,
     builder: ir.IRBuilder,
@@ -134,7 +154,11 @@ def injected_ir_resources(
     if requirements.needs_thread_jump:
         kwargs["thread_jump"] = SeamThreadJumpIR(builder=builder, state=state)
     if requirements.needs_current_xt:
-        kwargs["current_word_thread"] = CurrentWordThreadIR(state=state)
+        dictionary_memory = state.dictionary_memory.load(name="dictionary_memory")
+        kwargs["current_word_thread"] = CurrentXtDictionaryThreadIR(
+            state=state,
+            dictionary_ir=dictionary.DictionaryIR(builder, dictionary_memory),
+        )
     if requirements.needs_return_stack:
         kwargs["return_stack"] = ReturnStackIR(builder=builder, state=state)
     if requirements.needs_execution_control:
@@ -223,7 +247,7 @@ def op_zbranch_ir(
 def op_docol_ir(
     builder: ir.IRBuilder,
     *,
-    current_word_thread: CurrentWordThreadIR,
+    current_word_thread: CurrentXtDictionaryThreadIR,
     return_stack: ReturnStackIR,
     control: LoweredExecutionControlIR,
     err: LoweredErrorExitIR,

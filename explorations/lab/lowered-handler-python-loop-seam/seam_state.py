@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 
+from fythvm import dictionary
 from fythvm.codegen import BoundStructView, StructHandle
 
 
@@ -15,11 +16,11 @@ class LoweredLoopState(ctypes.Structure):
         ("halt_requested", ctypes.c_uint32, 1),
         ("exact_ip_requested", ctypes.c_uint32, 1),
         ("_reserved_flags", ctypes.c_uint32, 30),
+        ("dictionary_memory", ctypes.POINTER(dictionary.DictionaryMemory)),
         ("ip", ctypes.c_int32),
         ("current_xt", ctypes.c_int32),
         ("thread_cells", ctypes.POINTER(ctypes.c_int32)),
         ("thread_length", ctypes.c_int32),
-        ("current_word_thread_cells", ctypes.POINTER(ctypes.c_int32)),
         ("current_word_thread_length", ctypes.c_int32),
         ("stack", ctypes.c_int32 * STACK_CAPACITY),
         ("sp", ctypes.c_int32),

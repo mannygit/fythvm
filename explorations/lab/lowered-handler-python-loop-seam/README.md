@@ -20,11 +20,13 @@ This lab keeps almost everything in Python:
   hand-maintaining physical struct indexes after reification
 - the state now uses promoted stack-view naming and shape (`stack` + downward-growing
   `sp`) so lowered handlers can use `StructViewStackAccess` directly
+- the state now also carries a real `DictionaryMemory*`, so lowered handlers can read
+  real dictionary layout through `DictionaryIR`
 - the state also carries current-thread storage (`thread_cells` + `thread_length`) so a
   promoted `ThreadCursorIR` can wrap `ip` without inventing a separate thread-state
   axis
-- the state also carries current-word thread storage plus a small return-frame area so
-  `DOCOL` can enter a child thread without collapsing the whole interpreter into a
+- the state still carries a current-word thread extent plus a small return-frame area
+  so `DOCOL` can enter a child thread without collapsing the whole interpreter into a
   native dispatch loop
 
 This lab is the direct lowering follow-on to
@@ -39,6 +41,16 @@ It now also kicks the tires of the promoted dictionary runtime for custom words:
 - their real `dfa_index` cells back the child thread that lowered `DOCOL` enters
 - the seam no longer invents a fake custom-word `xt` plus a separate child-thread
   buffer just to make threaded entry work
+
+And it now kicks the tires of the lowered dictionary too, but only for one narrow
+thing:
+
+- lowered `DOCOL` resolves the child thread pointer from `current_xt` through
+  `DictionaryIR`
+- Python no longer stuffs `current_word_thread_cells` into shared state before every
+  threaded call
+- the child-thread length remains seam-local for now, because the dictionary layout
+  does not treat thread extent as first-class Forth metadata
 
 The lab is split by concern inside its directory:
 
@@ -81,8 +93,8 @@ surfaces, not backend policy:
 - the wrapper function injects `control` and `err` from the descriptor requirements
 - the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
   when the descriptor requirements ask for them
-- the wrapper now also injects promoted `CurrentWordThreadIR` plus promoted
-  `ReturnStackIR` when `DOCOL` asks for them
+- the wrapper now also injects dictionary-backed current-word thread access plus
+  promoted `ReturnStackIR` when `DOCOL` asks for them
 - the wrapper, not `op_halt_ir(...)`, adds the final `ret void`
 - the host-visible state projection is generated from ctypes layout, including logical
   bitfield views for control state
@@ -96,8 +108,8 @@ The lab now also has the next seam surfaces ready for threaded entry:
   `needs_thread_cursor=True`
 - the lowered wrapper can inject `ThreadJumpIR` for handlers that declare
   `needs_thread_jump=True`
-- the lowered wrapper can inject `CurrentWordThreadIR` for handlers that declare
-  `needs_current_xt=True`
+- the lowered wrapper can inject dictionary-backed current-word thread access for
+  handlers that declare `needs_current_xt=True`
 
 Backend choice stays lab-local, and the active threaded-control scenarios now route
 through lowered wrappers all the way through `EXIT`.
@@ -165,7 +177,8 @@ This lab explicitly demonstrates the first promoted lowering ingredients in one 
 - generated ctypes projections
 - logical bitfield control fields
 - promoted stack access
-- promoted thread cursor/jump/current-word-thread access
+- promoted thread cursor/jump access plus lowered dictionary-backed current-word
+  thread resolution
 - lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, `EXIT`, and `HALT` bodies with injected
   surfaces
 

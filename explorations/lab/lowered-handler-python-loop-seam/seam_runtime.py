@@ -186,6 +186,7 @@ def execute_scenario(
 ) -> ScenarioResult:
     dictionary_runtime, resolved_words, resolved_entry_thread = materialize_dictionary_words(scenario)
     state = LoweredLoopState()
+    state.dictionary_memory = ctypes.pointer(dictionary_runtime.memory)
     state.sp = STACK_CAPACITY
     state.rsp = RETURN_STACK_CAPACITY
 
@@ -198,16 +199,13 @@ def execute_scenario(
         pointer_key(entry_ptr): ThreadRecord(name="entry", thread=resolved_entry_thread)
     }
     custom_word_map = {word.xt: word for word in resolved_words}
-    custom_thread_ptrs: dict[int, ctypes._Pointer[ctypes.c_int32]] = {}  # type: ignore[attr-defined]
 
     for word in resolved_words:
         ptr = dictionary_thread_ptr(dictionary_runtime.memory, word.dfa_index)
         thread_records[pointer_key(ptr)] = ThreadRecord(name=word.name, thread=word.thread)
-        custom_thread_ptrs[word.xt] = ptr
 
     trace_rows: list[TraceRow] = []
     state_ptr = ctypes.pointer(state)
-    null_thread_ptr = ctypes.POINTER(ctypes.c_int32)()
 
     while not halt_requested(state):
         current_record = current_thread_record(state, thread_records)
@@ -221,10 +219,8 @@ def execute_scenario(
 
         if xt in custom_word_map:
             word = custom_word_map[xt]
-            state.current_word_thread_cells = custom_thread_ptrs[xt]
             state.current_word_thread_length = len(word.thread)
         else:
-            state.current_word_thread_cells = null_thread_ptr
             state.current_word_thread_length = 0
 
         ensure_data_stack_requirements(state, descriptor)

@@ -111,3 +111,31 @@ def test_dictionary_ir_find_word_is_newest_first_and_skips_hidden() -> None:
     assert found_dup != older_dup.index
     assert found_secret == NULL_INDEX
     assert found_missing == NULL_INDEX
+
+
+def test_dictionary_ir_resolves_thread_cells_pointer_from_cfa() -> None:
+    configure_llvm()
+
+    runtime = DictionaryRuntime()
+    word = runtime.create_word("sum23", handler_id=17, data=(101, 202, 303))
+
+    module = ir.Module(name="dictionary_ir_thread_cells_ptr_for_cfa")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(
+        module,
+        ir.FunctionType(I32, [dictionary_memory_handle().ir_type.as_pointer(), I32]),
+        name="read_first_thread_cell",
+    )
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    dictionary = DictionaryIR(builder, fn.args[0])
+    thread_cells_ptr = dictionary.thread_cells_ptr_for_cfa(fn.args[1], name="thread_cells_ptr")
+    builder.ret(builder.load(thread_cells_ptr, name="first_thread_cell"))
+
+    compiled = compile_ir_module(module)
+    read_first_thread_cell = ctypes.CFUNCTYPE(
+        ctypes.c_int32,
+        ctypes.POINTER(DictionaryMemory),
+        ctypes.c_int32,
+    )(compiled.function_address("read_first_thread_cell"))
+
+    assert read_first_thread_cell(ctypes.byref(runtime.memory), word.cfa_index) == 101

@@ -94,6 +94,21 @@ class DictionaryIR:
     def word(self, word_index: ir.Value):
         return self.word_prefix_handle.bind(self.builder, self.word_prefix_ptr(word_index, name="word_ptr"))
 
+    def word_index_for_cfa(self, cfa_index: ir.Value, *, name: str = "word_index") -> ir.Value:
+        """Resolve a word's prefix cell index from its CFA cell index."""
+
+        return self.builder.sub(cfa_index, I32(1), name=name)
+
+    def dfa_index_for_cfa(self, cfa_index: ir.Value, *, name: str = "dfa_index") -> ir.Value:
+        """Resolve a word's data-field start cell index from its CFA cell index."""
+
+        return self.builder.add(cfa_index, I32(1), name=name)
+
+    def thread_cells_ptr_for_cfa(self, cfa_index: ir.Value, *, name: str = "thread_cells_ptr") -> ir.Value:
+        """Resolve a colon word's thread cells pointer from its CFA cell index."""
+
+        return self.cell_ptr(self.dfa_index_for_cfa(cfa_index, name=f"{name}_dfa_index"), name=name)
+
     def name_length(self, word_index: ir.Value) -> ir.Value:
         word = self.word(word_index)
         code_field = word.code_field.bind(self.code_field_handle)
