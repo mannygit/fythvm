@@ -12,7 +12,7 @@ This lab keeps almost everything in Python:
 
 - the thread is a tuple of raw cells
 - the dispatch loop is Python
-- `LIT`, `ADD`, and `HALT` are lowered through wrapper functions in this pass
+- `LIT`, `ADD`, `BRANCH`, and `HALT` are lowered through wrapper functions in this pass
 - the host-visible machine state is a tiny `ctypes.Structure`
 - the lowered wrapper reifies that `ctypes` layout through the promoted
   `StructHandle.from_ctypes(...)` helper in package code
@@ -44,7 +44,7 @@ The lab is split by concern inside its directory:
 - `run.py`
   - the small orchestrating entrypoint
 
-`HALT`, `LIT`, and `ADD` are now lowered. Their generated wrapper functions take a pointer to
+`HALT`, `LIT`, `ADD`, and `BRANCH` are now lowered. Their generated wrapper functions take a pointer to
 that shared state and return normally to Python.
 
 The important wiring detail is that `HandlerRequirements` is used for injected
@@ -56,6 +56,8 @@ surfaces, not backend policy:
 - the lowered op body is shaped like `op_lit_ir(builder, *, data_stack, thread_cursor, err)`
 - `ADD` declares stack ingress/egress and lowers as a binary reducer over
   the promoted `BoundStackAccess.binary_reduce(...)` helper
+- `BRANCH` declares `needs_thread_cursor=True` and `needs_thread_jump=True`
+- the lowered op body is shaped like `op_branch_ir(builder, *, thread_cursor, thread_jump, err)`
 - the wrapper function injects `control` and `err` from the descriptor requirements
 - the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
   when the descriptor requirements ask for them
@@ -70,6 +72,8 @@ The lab now also has the next seam surface ready for `LIT`:
 - the concrete storage lives in the shared state as `thread_cells` and `thread_length`
 - the lowered wrapper can inject `ThreadCursorIR` for handlers that declare
   `needs_thread_cursor=True`
+- the lowered wrapper can inject `ThreadJumpIR` for handlers that declare
+  `needs_thread_jump=True`
 
 Backend choice stays lab-local, but both words in the current scenarios now route
 through lowered wrappers.
@@ -97,9 +101,10 @@ docker compose run --rm dev uv run python explorations/lab/lowered-handler-pytho
 
 The run prints:
 
-- the generated LLVM IR for the lowered `LIT`, `ADD`, and `HALT` handlers
+- the generated LLVM IR for the lowered `LIT`, `ADD`, `BRANCH`, and `HALT` handlers
 - a `HALT`-only scenario
 - a scenario where the JIT handles `LIT`, `ADD`, and `HALT`
+- a scenario where the JIT handles `LIT`, `BRANCH`, and `HALT`
 - per-step traces with:
   - word
   - backend (`python` or `jit`)
@@ -129,7 +134,7 @@ This lab explicitly demonstrates the first promoted lowering ingredients in one 
 - generated ctypes projections
 - logical bitfield control fields
 - promoted stack access
-- lowered `LIT`, `ADD`, and `HALT` bodies with injected surfaces
+- lowered `LIT`, `ADD`, `BRANCH`, and `HALT` bodies with injected surfaces
 
 ## Pattern / Takeaway
 
@@ -152,6 +157,10 @@ termination or outer dispatch.
 `ADD` is the next good lowered step because it proves the first binary stack kernel
 shape over the same promoted stack view without introducing branch or return-stack
 concerns.
+
+`BRANCH` is the next good lowered control step because it proves the first lowered
+thread-jump surface without yet bringing in conditional control or return-stack
+semantics.
 
 ## Non-Obvious Failure Modes
 

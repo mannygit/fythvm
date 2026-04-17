@@ -62,4 +62,20 @@ SCENARIOS = (
         expected_state_flags=STATE_HALT_REQUESTED,
         expected_trace_backends=("jit", "jit", "jit", "jit"),
     ),
+    Scenario(
+        name="jit-branch-skip-then-jit-halt",
+        thread=(
+            int(dictionary.PrimitiveInstruction.LIT),
+            7,
+            int(dictionary.PrimitiveInstruction.BRANCH),
+            2,
+            int(dictionary.PrimitiveInstruction.LIT),
+            999,
+            int(dictionary.PrimitiveInstruction.HALT),
+        ),
+        expected_stack=(7,),
+        expected_final_ip=6,
+        expected_state_flags=STATE_HALT_REQUESTED,
+        expected_trace_backends=("jit", "jit", "jit"),
+    ),
 )

@@ -28,5 +28,18 @@ class ThreadCursorIR:
         return operand
 
 
+@dataclass(frozen=True)
+class ThreadJumpIR:
+    """Thread-position redirection layered over the shared ip field."""
+
+    builder: ir.IRBuilder
+    state: LoweredLoopStateView
+
+    def branch_relative(self, offset: ir.Value) -> None:
+        current_ip = self.state.ip.load(name="branch_ip")
+        target_ip = self.builder.add(current_ip, offset, name="branch_target_ip")
+        self.state.ip.store(target_ip)
+
+
 def materialize_thread_buffer(thread: tuple[int, ...]) -> ctypes.Array[ctypes.c_int32]:
     return (ctypes.c_int32 * len(thread))(*thread)

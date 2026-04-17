@@ -57,6 +57,11 @@ def decompile_thread(thread: tuple[int, ...]) -> tuple[str, ...]:
             lines.append(f"{ip}: LIT {operand}")
             ip += 2
             continue
+        if descriptor.key == "BRANCH":
+            operand = int(thread[ip + 1]) if ip + 1 < len(thread) else "<missing>"
+            lines.append(f"{ip}: BRANCH {operand}")
+            ip += 2
+            continue
         lines.append(f"{ip}: {descriptor.key}")
         ip += 1
     return tuple(lines)

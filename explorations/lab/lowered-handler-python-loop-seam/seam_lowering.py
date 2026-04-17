@@ -11,7 +11,7 @@ from fythvm.codegen import BoundStackAccess, StructViewStackAccess
 from fythvm.codegen.llvm import compile_ir_module
 
 from seam_state import LoweredLoopState, LoweredLoopStateView, STATE_HANDLE
-from seam_thread import ThreadCursorIR
+from seam_thread import ThreadCursorIR, ThreadJumpIR
 
 
 I1 = ir.IntType(1)
@@ -63,6 +63,8 @@ def injected_ir_resources(
         kwargs["data_stack"] = StructViewStackAccess(state).bind(builder)
     if requirements.needs_thread_cursor:
         kwargs["thread_cursor"] = ThreadCursorIR(builder=builder, state=state)
+    if requirements.needs_thread_jump:
+        kwargs["thread_jump"] = ThreadJumpIR(builder=builder, state=state)
     if requirements.needs_execution_control:
         kwargs["control"] = LoweredExecutionControlIR(builder=builder, state=state)
     if requirements.needs_error_exit:
@@ -114,6 +116,21 @@ def op_add_ir(
     )
 
 
+def op_branch_ir(
+    builder: ir.IRBuilder,
+    *,
+    thread_cursor: ThreadCursorIR,
+    thread_jump: ThreadJumpIR,
+    err: LoweredErrorExitIR,
+) -> None:
+    """Emit BRANCH's local IR effect without owning wrapper termination."""
+
+    _ = builder
+    _ = err
+    offset = thread_cursor.read_inline_cell()
+    thread_jump.branch_relative(offset)
+
+
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
     int(dictionary.PrimitiveInstruction.LIT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.LIT),
@@ -126,6 +143,12 @@ LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
         function_name="lowered_add",
         op=op_add_ir,
         note="reduce the top two stack cells through the lowered stack view",
+    ),
+    int(dictionary.PrimitiveInstruction.BRANCH): LoweredHandlerSpec(
+        handler_id=int(dictionary.PrimitiveInstruction.BRANCH),
+        function_name="lowered_branch",
+        op=op_branch_ir,
+        note="read one inline branch offset and redirect ip through the lowered thread surfaces",
     ),
     int(dictionary.PrimitiveInstruction.HALT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.HALT),
