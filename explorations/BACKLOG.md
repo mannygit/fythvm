@@ -39,9 +39,9 @@ close out. Keep the backlog small and explicit.
     tail-call the next interpreter step; do not reduce it to generic tail recursion.
   - Why it matters: This is one of the most distinctive patterns in `~/fyth` and a
     good example of learned LLVM control-flow design.
-  - Current priority: Deprioritized until the dictionary/schema/layout abstractions
-    settle. The execution shape is still valuable, but it should not drive the next
-    round of structural decisions.
+  - Current priority: More actionable now that the lowered seam lab has an explicit
+    `NEXT`-convergence step. Still keep it behind seam-lab proof work rather than
+    driving package design directly.
   - Distinct from existing labs: none of the current labs cover threaded interpreter
     dispatch or tail-called continuation threading.
 
@@ -57,8 +57,9 @@ close out. Keep the backlog small and explicit.
     "tail-call helper" code.
   - Why it matters: This is an unusual but concrete technique for retrofitting a
     common continuation onto existing emitted functions.
-  - Current priority: Keep behind the schema/dictionary abstraction work. It is more
-    useful once the execution model is ready to stabilize.
+  - Current priority: The seam lab now has the right ingredients to try this as a
+    focused follow-on. Keep it exploratory until the shared lowered `NEXT` shape
+    feels stable under more scenarios.
   - Distinct from existing labs: it is not the same as delayed export or generic tail
     calls; it is specifically about CFG rewriting after function generation.
 
@@ -96,9 +97,11 @@ close out. Keep the backlog small and explicit.
     that does not immediately collapse visibility into a native dispatch engine. This
     is the first lowering follow-on to the HandlerRequirements-driven Python loop lab.
   - Takeaway: Starting from the semantic/reference lab, a good next seam is to keep
-    Python in charge of dispatch while lowered handlers consume injected surfaces over
-    shared state. Lower `HALT` and `LIT`, let native code mutate control and stack
-    state, and let the wrapper, not the local op body, own `ret`.
+    Python as the outer loop while lowered handlers consume injected surfaces over
+    shared state. Once fetch, dispatch, stack, thread, dictionary, and return-stack
+    surfaces all hold up, the seam can converge toward a shared lowered `NEXT`-like
+    trampoline where continuation is expressed in CFG instead of a host-visible
+    exact-`ip` side channel.
   - Lab: `explorations/lab/lowered-handler-python-loop-seam/`
 
 - `handler-requirements-python-loop`

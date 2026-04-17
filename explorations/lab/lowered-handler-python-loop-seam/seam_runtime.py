@@ -174,16 +174,9 @@ def decompile_thread(
 
 def halt_requested(state: LoweredLoopState) -> bool:
     return bool(int(state.halt_requested))
-
-
-def exact_ip_requested(state: LoweredLoopState) -> bool:
-    return bool(int(state.exact_ip_requested))
-
-
 def execute_scenario(
     scenario: Scenario,
-    lowered_fetch: ctypes._CFuncPtr,  # type: ignore[attr-defined]
-    lowered_dispatch: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+    lowered_step: ctypes._CFuncPtr,  # type: ignore[attr-defined]
 ) -> ScenarioResult:
     dictionary_runtime, resolved_words, resolved_entry_thread = materialize_dictionary_words(scenario)
     state = LoweredLoopState()
@@ -214,8 +207,7 @@ def execute_scenario(
         if ip >= len(current_record.thread):
             raise RuntimeError(f"{current_record.name} stepped past end without HALT or EXIT")
 
-        lowered_fetch(state_ptr)
-        xt = int(state.current_xt)
+        xt = int(current_record.thread[ip])
         descriptor, word_name = resolve_word_descriptor(xt, custom_word_map)
 
         if xt in custom_word_map:
@@ -231,7 +223,7 @@ def execute_scenario(
 
         if descriptor.handler_id in LOWERED_HANDLER_SPECS:
             backend = "jit"
-            lowered_dispatch(state_ptr)
+            lowered_step(state_ptr)
             note = LOWERED_HANDLER_SPECS[descriptor.handler_id].note
         else:
             raise RuntimeError(f"unsupported handler in seam lab: {descriptor.key}")
@@ -252,10 +244,6 @@ def execute_scenario(
 
         if halt_requested(state):
             break
-        if exact_ip_requested(state):
-            state.exact_ip_requested = 0
-        else:
-            state.ip = int(state.ip) + 1
 
     return ScenarioResult(
         resolved_thread=resolved_entry_thread,

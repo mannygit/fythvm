@@ -12,7 +12,7 @@ from seam_runtime import assert_result_matches, execute_scenario
 
 def main() -> None:
     configure_llvm()
-    _module, compiled, lowered_fetch, lowered_dispatch, lowered_addresses = build_lowered_runtime()
+    _module, compiled, lowered_step, lowered_step_address = build_lowered_runtime()
 
     print("== Question ==")
     print("What is the smallest useful seam between a Python dispatch loop and a gradually lowered handler set?")
@@ -21,13 +21,16 @@ def main() -> None:
     print(compiled.llvm_ir.rstrip())
     print()
     print("== Takeaway ==")
-    print("Inject lowered op resources from HandlerRequirements; let the wrapper own ret, let Python own dispatch, and grow the seam one honest surface at a time.")
+    print(
+        "Inject lowered op resources from HandlerRequirements, rejoin a shared lowered "
+        "NEXT-like trampoline, and keep Python focused on the outer loop and trace."
+    )
     print()
 
     for scenario in SCENARIOS:
-        result = execute_scenario(scenario, lowered_fetch, lowered_dispatch)
+        result = execute_scenario(scenario, lowered_step)
         assert_result_matches(scenario, result)
-        print_scenario(scenario, result, lowered_addresses=lowered_addresses)
+        print_scenario(scenario, result, lowered_step_address=lowered_step_address)
 
 
 if __name__ == "__main__":

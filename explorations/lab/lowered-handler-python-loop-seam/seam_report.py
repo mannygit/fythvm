@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from fythvm import dictionary
-
 from seam_model import Scenario, ScenarioResult
 from seam_runtime import decompile_thread
 
@@ -10,7 +8,7 @@ def print_scenario(
     scenario: Scenario,
     result: ScenarioResult,
     *,
-    lowered_addresses: dict[int, int],
+    lowered_step_address: int,
 ) -> None:
     print(f"== {scenario.name.upper()} ==")
     print("thread:")
@@ -20,9 +18,7 @@ def print_scenario(
         print(f"word {word.name}:")
         for line in decompile_thread(word.thread, custom_words=result.resolved_words):
             print(f"  {line}")
-    halt_id = int(dictionary.PrimitiveInstruction.HALT)
-    if halt_id in lowered_addresses:
-        print(f"lowered HALT address: 0x{lowered_addresses[halt_id]:x}")
+    print(f"lowered NEXT-step address: 0x{lowered_step_address:x}")
     print(
         "expected:"
         f" stack={list(scenario.expected_stack)}"

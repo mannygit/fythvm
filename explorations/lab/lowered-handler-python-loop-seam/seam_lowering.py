@@ -23,27 +23,18 @@ I1 = ir.IntType(1)
 I32 = ir.IntType(32)
 LoweredOp = Callable[..., None]
 TRUE_BIT = I1(1)
-FALSE_BIT = I1(0)
 VOID = ir.VoidType()
 
 
 @dataclass(frozen=True)
 class LoweredExecutionControlIR:
-    """Execution-control helper injected into lowered op bodies.
-
-    Normal handlers still rely on host-side fallthrough. Control-shaping handlers
-    can instead install an exact next ip and set ``exact_ip_requested`` so the
-    host loop skips its usual increment for that step.
-    """
+    """Execution-control helper injected into lowered op bodies."""
 
     builder: ir.IRBuilder
     state: LoweredLoopStateView
 
     def request_halt(self) -> None:
         self.state.halt_requested.store(TRUE_BIT)
-
-    def request_exact_ip(self) -> None:
-        self.state.exact_ip_requested.store(TRUE_BIT)
 
     def enter_thread(self, *, thread: ThreadRefIR, return_stack: ReturnStackIR) -> None:
         current_thread = ThreadRefIR(
@@ -56,18 +47,38 @@ class LoweredExecutionControlIR:
         self.state.thread_cells.store(thread.cells)
         self.state.thread_length.store(thread.length)
         self.state.ip.store(I32(0))
-        self.request_exact_ip()
 
     def return_to_thread(self, *, thread: ThreadRefIR, return_ip: ir.Value) -> None:
         self.state.thread_cells.store(thread.cells)
         self.state.thread_length.store(thread.length)
         self.state.ip.store(return_ip)
-        self.request_exact_ip()
+
+
+@dataclass(frozen=True)
+class SeamNextTrampolineIR:
+    """Shared continuation targets for the seam lab's NEXT-like lowering."""
+
+    builder: ir.IRBuilder
+    advance_ip_block: ir.Block
+    refetch_block: ir.Block
+    halt_block: ir.Block
+
+    def continue_fallthrough(self) -> None:
+        self.builder.branch(self.advance_ip_block)
+
+    def continue_exact(self) -> None:
+        self.builder.branch(self.refetch_block)
+
+    def continue_if_exact(self, should_branch: ir.Value) -> None:
+        self.builder.cbranch(should_branch, self.refetch_block, self.advance_ip_block)
+
+    def halt(self) -> None:
+        self.builder.branch(self.halt_block)
 
 
 @dataclass(frozen=True)
 class SeamThreadJumpIR:
-    """Thread-jump helper that can suppress host fallthrough when needed."""
+    """Thread-jump helper layered over the shared ip field."""
 
     builder: ir.IRBuilder
     state: LoweredLoopStateView
@@ -79,9 +90,8 @@ class SeamThreadJumpIR:
         offset_base_ip = self.builder.add(current_ip, offset, name="branch_offset_base_ip")
         target_ip = self.builder.add(offset_base_ip, I32(1), name="branch_target_ip")
         ip_field.store(target_ip)
-        self.state.exact_ip_requested.store(TRUE_BIT)
 
-    def branch_if_zero(self, value: ir.Value, offset: ir.Value) -> None:
+    def branch_if_zero(self, value: ir.Value, offset: ir.Value) -> ir.Value:
         ip_field = getattr(self.state, self.ip_field_name)
         current_ip = ip_field.load(name="zbranch_operand_ip")
         offset_base_ip = self.builder.add(current_ip, offset, name="zbranch_offset_base_ip")
@@ -89,13 +99,7 @@ class SeamThreadJumpIR:
         should_branch = self.builder.icmp_signed("==", value, I32(0), name="zbranch_is_zero")
         next_ip = self.builder.select(should_branch, target_ip, current_ip, name="zbranch_next_ip")
         ip_field.store(next_ip)
-        exact_ip_requested = self.builder.select(
-            should_branch,
-            TRUE_BIT,
-            FALSE_BIT,
-            name="zbranch_exact_ip_requested",
-        )
-        self.state.exact_ip_requested.store(exact_ip_requested)
+        return should_branch
 
 
 @dataclass(frozen=True)
@@ -117,14 +121,8 @@ class LoweredHandlerSpec:
     function_name: str
     op: LoweredOp
     note: str
-
-
-def lowered_fetch_function_name() -> str:
-    return "lowered_fetch"
-
-
-def lowered_dispatch_function_name() -> str:
-    return "lowered_dispatch"
+def lowered_step_function_name() -> str:
+    return "lowered_step"
 
 
 @dataclass(frozen=True)
@@ -153,9 +151,11 @@ def injected_ir_resources(
     builder: ir.IRBuilder,
     state: LoweredLoopStateView,
     descriptor: dictionary.InstructionDescriptor,
+    trampoline: SeamNextTrampolineIR,
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {}
     requirements = descriptor.requirements
+    kwargs["trampoline"] = trampoline
     if requirements.min_data_stack_in > 0 or requirements.min_data_stack_out_space > 0:
         kwargs["data_stack"] = StructViewStackAccess(state).bind(builder)
     if requirements.needs_thread_cursor:
@@ -181,13 +181,15 @@ def op_halt_ir(
     builder: ir.IRBuilder,
     *,
     control: LoweredExecutionControlIR,
+    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
-    """Emit HALT's local IR effect without owning wrapper termination."""
+    """Emit HALT's local IR effect without owning whole-step termination."""
 
     _ = builder
     _ = err
     control.request_halt()
+    trampoline.halt()
 
 
 def op_lit_ir(
@@ -195,23 +197,26 @@ def op_lit_ir(
     *,
     data_stack: BoundStackAccess,
     thread_cursor: ThreadCursorIR,
+    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
-    """Emit LIT's local IR effect without owning wrapper termination."""
+    """Emit LIT's local IR effect without owning whole-step termination."""
 
     _ = builder
     _ = err
     literal = thread_cursor.read_inline_cell()
     data_stack.push(literal, name="lit_sp")
+    trampoline.continue_fallthrough()
 
 
 def op_add_ir(
     builder: ir.IRBuilder,
     *,
     data_stack: BoundStackAccess,
+    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
-    """Emit ADD's local IR effect without owning wrapper termination."""
+    """Emit ADD's local IR effect without owning whole-step termination."""
 
     _ = err
     data_stack.binary_reduce(
@@ -219,6 +224,7 @@ def op_add_ir(
         result_index_name="add_result_index",
         result_ptr_name="add_result_ptr",
     )
+    trampoline.continue_fallthrough()
 
 
 def op_branch_ir(
@@ -226,14 +232,16 @@ def op_branch_ir(
     *,
     thread_cursor: ThreadCursorIR,
     thread_jump: SeamThreadJumpIR,
+    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
-    """Emit BRANCH's local IR effect without owning wrapper termination."""
+    """Emit BRANCH's local IR effect without owning whole-step termination."""
 
     _ = builder
     _ = err
     offset = thread_cursor.read_inline_cell()
     thread_jump.branch_relative(offset)
+    trampoline.continue_exact()
 
 
 def op_zbranch_ir(
@@ -242,15 +250,17 @@ def op_zbranch_ir(
     data_stack: BoundStackAccess,
     thread_cursor: ThreadCursorIR,
     thread_jump: SeamThreadJumpIR,
+    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
-    """Emit 0BRANCH's local IR effect without owning wrapper termination."""
+    """Emit 0BRANCH's local IR effect without owning whole-step termination."""
 
     _ = err
     condition = data_stack.peek(name="zbranch_condition")
     offset = thread_cursor.read_inline_cell()
     data_stack.drop(name="zbranch_next_sp")
-    thread_jump.branch_if_zero(condition, offset)
+    should_branch = thread_jump.branch_if_zero(condition, offset)
+    trampoline.continue_if_exact(should_branch)
 
 
 def op_docol_ir(
@@ -259,13 +269,15 @@ def op_docol_ir(
     current_word_thread: CurrentXtDictionaryThreadIR,
     return_stack: ReturnStackIR,
     control: LoweredExecutionControlIR,
+    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
-    """Emit DOCOL's local IR effect without owning wrapper termination."""
+    """Emit DOCOL's local IR effect without owning whole-step termination."""
 
     _ = builder
     _ = err
     control.enter_thread(thread=current_word_thread.ref(), return_stack=return_stack)
+    trampoline.continue_exact()
 
 
 def op_exit_ir(
@@ -273,14 +285,16 @@ def op_exit_ir(
     *,
     return_stack: ReturnStackIR,
     control: LoweredExecutionControlIR,
+    trampoline: SeamNextTrampolineIR,
     err: LoweredErrorExitIR,
 ) -> None:
-    """Emit EXIT's local IR effect without owning wrapper termination."""
+    """Emit EXIT's local IR effect without owning whole-step termination."""
 
     _ = builder
     _ = err
     thread, return_ip = return_stack.pop_frame()
     control.return_to_thread(thread=thread, return_ip=return_ip)
+    trampoline.continue_exact()
 
 
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
@@ -329,73 +343,60 @@ LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
 }
 
 
-def define_lowered_handler(module: ir.Module, spec: LoweredHandlerSpec) -> None:
-    descriptor = dictionary.instruction_descriptor_for_handler_id(spec.handler_id)
-    if descriptor is None:
-        raise RuntimeError(f"missing descriptor for lowered handler id {spec.handler_id}")
-
-    state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
-    function_type = ir.FunctionType(ir.VoidType(), [state_ptr_type])
-    function = ir.Function(module, function_type, name=spec.function_name)
-    block = function.append_basic_block(name="entry")
-    builder = ir.IRBuilder(block)
-
-    state_ptr = function.args[0]
-    state_ptr.name = "state"
-    state = STATE_HANDLE.bind(builder, state_ptr)
-    kwargs = injected_ir_resources(builder=builder, state=state, descriptor=descriptor)
-    spec.op(builder, **kwargs)
-    builder.ret_void()
-
-
-def define_lowered_fetch(module: ir.Module) -> None:
-    state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
-    function = ir.Function(
-        module,
-        ir.FunctionType(VOID, [state_ptr_type]),
-        name=lowered_fetch_function_name(),
-    )
-    builder = ir.IRBuilder(function.append_basic_block(name="entry"))
-    state_ptr = function.args[0]
-    state_ptr.name = "state"
-    state = STATE_HANDLE.bind(builder, state_ptr)
-
-    current_ip = state.ip.load(name="fetch_ip")
-    thread_cells = state.thread_cells.load(name="fetch_thread_cells")
-    xt_ptr = builder.gep(thread_cells, [current_ip], inbounds=True, name="fetch_xt_ptr")
-    current_xt = builder.load(xt_ptr, name="fetched_xt")
+def emit_fetch_current_xt(
+    builder: ir.IRBuilder,
+    state: LoweredLoopStateView,
+    *,
+    name_prefix: str,
+) -> ir.Value:
+    current_ip = state.ip.load(name=f"{name_prefix}_ip")
+    thread_cells = state.thread_cells.load(name=f"{name_prefix}_thread_cells")
+    xt_ptr = builder.gep(thread_cells, [current_ip], inbounds=True, name=f"{name_prefix}_xt_ptr")
+    current_xt = builder.load(xt_ptr, name=f"{name_prefix}_xt")
     state.current_xt.store(current_xt)
-    builder.ret_void()
+    return current_xt
 
 
-def define_lowered_dispatch(module: ir.Module) -> None:
+def define_lowered_step(module: ir.Module) -> None:
     state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
     function = ir.Function(
         module,
         ir.FunctionType(VOID, [state_ptr_type]),
-        name=lowered_dispatch_function_name(),
+        name=lowered_step_function_name(),
     )
     builder = ir.IRBuilder(function.append_basic_block(name="entry"))
     state_ptr = function.args[0]
     state_ptr.name = "state"
     state = STATE_HANDLE.bind(builder, state_ptr)
+    resolved_handler_id_ptr = builder.alloca(I32, name="resolved_handler_id_ptr")
+    fetch_block = function.append_basic_block("fetch")
+    dispatch_custom_block = function.append_basic_block("dispatch_custom_word")
+    dispatch_primitive_block = function.append_basic_block("dispatch_primitive")
+    dispatch_resolved_block = function.append_basic_block("dispatch_resolved")
+    advance_ip_block = function.append_basic_block("advance_ip")
+    refetch_block = function.append_basic_block("refetch")
+    halt_block = function.append_basic_block("halt")
+    step_complete_block = function.append_basic_block("step_complete")
+    builder.branch(fetch_block)
 
-    current_xt = state.current_xt.load(name="dispatch_current_xt")
-    dictionary_memory = state.dictionary_memory.load(name="dispatch_dictionary_memory")
-    dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
-    found_word_index = dictionary_ir.find_word_by_cfa(current_xt)
-    found_custom_word = builder.icmp_signed(
-        "!=",
-        found_word_index,
-        I32(dictionary.NULL_INDEX),
-        name="dispatch_found_custom_word",
-    )
-    custom_block = function.append_basic_block("dispatch_custom_word")
-    primitive_block = function.append_basic_block("dispatch_primitive")
-    resolved_block = function.append_basic_block("dispatch_resolved")
-    builder.cbranch(found_custom_word, custom_block, primitive_block)
+    with builder.goto_block(fetch_block):
+        current_xt = emit_fetch_current_xt(builder, state, name_prefix="step_fetch")
+        dictionary_memory = state.dictionary_memory.load(name="dispatch_dictionary_memory")
+        dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
+        found_word_index = dictionary_ir.find_word_by_cfa(current_xt)
+        found_custom_word = builder.icmp_signed(
+            "!=",
+            found_word_index,
+            I32(dictionary.NULL_INDEX),
+            name="dispatch_found_custom_word",
+        )
+        builder.cbranch(found_custom_word, dispatch_custom_block, dispatch_primitive_block)
 
-    with builder.goto_block(custom_block):
+    with builder.goto_block(dispatch_custom_block):
+        dictionary_memory = state.dictionary_memory.load(name="custom_dictionary_memory")
+        dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
+        current_xt = state.current_xt.load(name="custom_current_xt")
+        found_word_index = dictionary_ir.find_word_by_cfa(current_xt)
         custom_word = dictionary_ir.word(found_word_index)
         custom_code_field = custom_word.code_field.bind(dictionary_ir.code_field_handle)
         custom_handler_id = builder.zext(
@@ -403,59 +404,86 @@ def define_lowered_dispatch(module: ir.Module) -> None:
             I32,
             name="dispatch_custom_handler_id",
         )
-        builder.branch(resolved_block)
+        builder.store(custom_handler_id, resolved_handler_id_ptr)
+        builder.branch(dispatch_resolved_block)
 
-    with builder.goto_block(primitive_block):
-        primitive_handler_id = current_xt
-        builder.branch(resolved_block)
+    with builder.goto_block(dispatch_primitive_block):
+        primitive_handler_id = state.current_xt.load(name="dispatch_primitive_handler_id")
+        builder.store(primitive_handler_id, resolved_handler_id_ptr)
+        builder.branch(dispatch_resolved_block)
 
-    builder.position_at_end(resolved_block)
-    resolved_handler_id = builder.phi(I32, name="dispatch_handler_id")
-    resolved_handler_id.add_incoming(custom_handler_id, custom_block)
-    resolved_handler_id.add_incoming(primitive_handler_id, primitive_block)
+    builder.position_at_end(dispatch_resolved_block)
+    resolved_handler_id = builder.load(resolved_handler_id_ptr, name="dispatch_handler_id")
 
     default_block = function.append_basic_block("unsupported")
-    exit_block = function.append_basic_block("exit")
     dispatcher = builder.switch(resolved_handler_id, default_block)
     for spec in LOWERED_HANDLER_SPECS.values():
+        descriptor = dictionary.instruction_descriptor_for_handler_id(spec.handler_id)
+        if descriptor is None:
+            raise RuntimeError(f"missing descriptor for lowered handler id {spec.handler_id}")
+
         case_block = function.append_basic_block(f"case_{spec.function_name}")
         dispatcher.add_case(I32(spec.handler_id), case_block)
         with builder.goto_block(case_block):
-            builder.call(module.get_global(spec.function_name), [state_ptr])
-            builder.branch(exit_block)
+            trampoline = SeamNextTrampolineIR(
+                builder=builder,
+                advance_ip_block=advance_ip_block,
+                refetch_block=refetch_block,
+                halt_block=halt_block,
+            )
+            kwargs = injected_ir_resources(
+                builder=builder,
+                state=state,
+                descriptor=descriptor,
+                trampoline=trampoline,
+            )
+            spec.op(builder, **kwargs)
 
     with builder.goto_block(default_block):
-        LoweredExecutionControlIR(builder=builder, state=state).request_halt()
-        builder.branch(exit_block)
+        state.halt_requested.store(TRUE_BIT)
+        builder.branch(halt_block)
 
-    builder.position_at_end(exit_block)
-    builder.ret_void()
+    with builder.goto_block(advance_ip_block):
+        current_ip = state.ip.load(name="step_current_ip")
+        next_ip = builder.add(current_ip, I32(1), name="step_next_ip")
+        state.ip.store(next_ip)
+        builder.branch(refetch_block)
+
+    with builder.goto_block(refetch_block):
+        refetch_ip = state.ip.load(name="step_refetch_ip")
+        thread_length = state.thread_length.load(name="step_refetch_thread_length")
+        can_refetch = builder.icmp_signed("<", refetch_ip, thread_length, name="step_can_refetch")
+        refetch_in_bounds_block = function.append_basic_block("refetch_in_bounds")
+        refetch_done_block = function.append_basic_block("refetch_done")
+        builder.cbranch(can_refetch, refetch_in_bounds_block, refetch_done_block)
+
+    with builder.goto_block(refetch_in_bounds_block):
+        emit_fetch_current_xt(builder, state, name_prefix="step_refetch")
+        builder.branch(refetch_done_block)
+
+    with builder.goto_block(refetch_done_block):
+        builder.branch(step_complete_block)
+
+    with builder.goto_block(halt_block):
+        builder.ret_void()
+
+    with builder.goto_block(step_complete_block):
+        builder.ret_void()
 
 
 def build_lowered_runtime() -> tuple[
     ir.Module,
     object,
     ctypes._CFuncPtr,  # type: ignore[attr-defined]
-    ctypes._CFuncPtr,  # type: ignore[attr-defined]
-    dict[int, int],
+    int,
 ]:
     module = ir.Module(name="lowered_handler_seam")
-    for spec in LOWERED_HANDLER_SPECS.values():
-        define_lowered_handler(module, spec)
-    define_lowered_fetch(module)
-    define_lowered_dispatch(module)
+    define_lowered_step(module)
 
     compiled = compile_ir_module(module)
-    lowered_addresses: dict[int, int] = {}
-    for handler_id, spec in LOWERED_HANDLER_SPECS.items():
-        address = compiled.function_address(spec.function_name)
-        lowered_addresses[handler_id] = address
-    lowered_fetch = ctypes.CFUNCTYPE(
+    lowered_step_address = compiled.function_address(lowered_step_function_name())
+    lowered_step = ctypes.CFUNCTYPE(
         None,
         ctypes.POINTER(LoweredLoopState),
-    )(compiled.function_address(lowered_fetch_function_name()))
-    lowered_dispatch = ctypes.CFUNCTYPE(
-        None,
-        ctypes.POINTER(LoweredLoopState),
-    )(compiled.function_address(lowered_dispatch_function_name()))
-    return module, compiled, lowered_fetch, lowered_dispatch, lowered_addresses
+    )(lowered_step_address)
+    return module, compiled, lowered_step, lowered_step_address

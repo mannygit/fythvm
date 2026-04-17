@@ -12,9 +12,10 @@ This lab keeps almost everything in Python:
 
 - the thread is a tuple of raw cells
 - the dispatch loop is Python
-- `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `HALT` are lowered through wrapper functions in this pass
+- `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `HALT` are lowered inside one
+  shared `NEXT`-like step in this pass
 - the host-visible machine state is a tiny `ctypes.Structure`
-- the lowered wrapper reifies that `ctypes` layout through the promoted
+- the lowered seam reifies that `ctypes` layout through the promoted
   `StructHandle.from_ctypes(...)` helper in package code
 - the bound state view is now generated from the `ctypes` layout too, so we are not
   hand-maintaining physical struct indexes after reification
@@ -57,7 +58,7 @@ The lab is split by concern inside its directory:
 - `seam_state.py`
   - host-visible ctypes state and generated promoted struct view
 - `seam_lowering.py`
-  - lowered op bodies, injected IR surfaces, and wrapper generation
+  - lowered op bodies, injected IR surfaces, and shared step-trampoline generation
 - `seam_runtime.py`
   - Python-side dispatch, preflight, and execution
 - `seam_thread.py`
@@ -69,10 +70,10 @@ The lab is split by concern inside its directory:
 - `run.py`
   - the small orchestrating entrypoint
 
-`HALT`, `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `EXIT` are now lowered. A
-small lowered fetch function and a small lowered dispatcher now sit beside those
-handler wrappers, and all of them take a pointer to that shared state and return
-normally to Python.
+`HALT`, `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `EXIT` are now lowered
+through one shared `NEXT`-like step trampoline. The op bodies stay local and
+declarative, but they now rejoin shared continuation blocks instead of setting a
+side bit and waiting for later host-side interpretation.
 
 The important wiring detail is that `HandlerRequirements` is used for injected
 surfaces, not backend policy:
@@ -92,12 +93,12 @@ surfaces, not backend policy:
   `needs_execution_control=True`
 - the lowered op body is shaped like
   `op_docol_ir(builder, *, current_word_thread, return_stack, control, err)`
-- the wrapper function injects `control` and `err` from the descriptor requirements
-- the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
-  when the descriptor requirements ask for them
-- the wrapper now also injects dictionary-backed current-word thread access plus
-  promoted `ReturnStackIR` when `DOCOL` asks for them
-- the wrapper, not `op_halt_ir(...)`, adds the final `ret void`
+- the shared step trampoline injects `control`, `err`, and a named continuation
+  surface into the local op body
+- the shared step trampoline injects `StructViewStackAccess(state).bind(builder)` and
+  `ThreadCursorIR` when the descriptor requirements ask for them
+- the shared step trampoline now also injects dictionary-backed current-word thread
+  access plus promoted `ReturnStackIR` when `DOCOL` asks for them
 - the host-visible state projection is generated from ctypes layout, including logical
   bitfield views for control state
 
@@ -106,27 +107,34 @@ The lab now also has the next seam surfaces ready for threaded entry:
 - `thread_cursor` is treated as a capability wrapper around `ip` plus current-thread
   storage
 - the concrete storage lives in the shared state as `thread_cells` and `thread_length`
-- the lowered wrapper can inject `ThreadCursorIR` for handlers that declare
+- the lowered step can inject `ThreadCursorIR` for handlers that declare
   `needs_thread_cursor=True`
-- the lowered wrapper can inject `ThreadJumpIR` for handlers that declare
+- the lowered step can inject `ThreadJumpIR` for handlers that declare
   `needs_thread_jump=True`
-- the lowered wrapper can inject dictionary-backed current-word thread access for
+- the lowered step can inject dictionary-backed current-word thread access for
   handlers that declare `needs_current_xt=True`
 
 Backend choice stays lab-local, and the active threaded-control scenarios now route
-through lowered wrappers all the way through `EXIT`.
+through the shared lowered step all the way through `EXIT`.
 
-Python no longer fetches the current cell or chooses the handler directly:
+Python no longer fetches the current cell, chooses the handler, or decides
+fallthrough-versus-exact continuation:
 
-- lowered fetch reads `thread_cells[ip]` and stores `current_xt`
+- lowered `step` begins in a fetch block that reads `thread_cells[ip]` and stores
+  `current_xt`
 - lowered dispatch resolves custom-word CFAs through the dictionary first
-- then it falls back to primitive handler ids and calls the already-lowered handler body
+- then it falls back to primitive handler ids and enters the already-defined local op
+  emitter for that handler
+- ordinary ops branch to a shared `advance_ip` block
+- `BRANCH`, taken `0BRANCH`, `DOCOL`, and `EXIT` branch directly to a shared
+  refetch block after installing an exact next `ip`
+- `HALT` branches to a shared `halt` block
 
 That means the seam is intentionally narrow:
 
-- Python still decides which handler to call
-- the lowered handler only mutates shared state
-- Python decides what the changed state means after the native call returns
+- Python still owns the outer loop and the trace
+- lowered step now owns fetch, dispatch, and shared continuation for one interpreter step
+- Python now mostly interprets the changed state for visibility, not for step control
 
 ## How to Run
 
@@ -145,7 +153,8 @@ docker compose run --rm dev uv run python explorations/lab/lowered-handler-pytho
 
 The run prints:
 
-- the generated LLVM IR for the lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, `EXIT`, and `HALT` handlers
+- the generated LLVM IR for the shared lowered `NEXT`-like step, including embedded
+  `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, `EXIT`, and `HALT` case blocks
 - a `HALT`-only scenario
 - a scenario where the JIT handles `LIT`, `ADD`, and `HALT`
 - a scenario where the JIT handles `LIT`, `BRANCH`, and `HALT`
@@ -165,20 +174,20 @@ It also uses `HandlerRequirements` for two declarative pieces:
 
 That now includes the promoted stack-access path:
 
-- when a lowered handler declares stack ingress or egress requirements, the wrapper
+- when a lowered handler declares stack ingress or egress requirements, the lowered
+  step
   can inject `StructViewStackAccess(state).bind(builder)` without inventing a lab-only
   stack surface
 
 The important visible behavior is:
 
-- the lowered function ends with an ordinary `ret void`
+- the lowered step still ends with an ordinary `ret void`
 - after the JIT call returns, Python sees `HALT_REQUESTED` set in shared state
 - the Python loop stops because of that state bit, not because the lowered function
   somehow owns the whole dispatch loop
-- the Python loop now applies fallthrough only when no lowered op requested an
-  exact next `ip`
-- `DOCOL`, `EXIT`, `BRANCH`, and taken `0BRANCH` now install exact destinations
-  directly rather than relying on a host-side `ip += 1` convention
+- continuation is no longer expressed through `exact_ip_requested`
+- `DOCOL`, `EXIT`, `BRANCH`, and taken `0BRANCH` now rejoin the shared step
+  trampoline through CFG, not through a side bit in shared state
 
 This lab explicitly demonstrates the first promoted lowering ingredients in one place:
 
@@ -194,23 +203,25 @@ This lab explicitly demonstrates the first promoted lowering ingredients in one 
 
 If we want to start lowering very slowly, a good first seam is:
 
-- keep dispatch in Python
+- keep Python as the outer loop
 - lower one handler at a time
-- let lowered code mutate shared state
-- let the Python loop interpret that state and remain in charge of fallthrough
-  versus exact-next-`ip` continuation
+- let lowered code mutate shared state through injected surfaces
+- then, once enough pieces hold up, move continuation into a shared lowered
+  `NEXT`-like trampoline instead of keeping a host-visible exact-`ip` side channel
 
 This is especially clean for `HALT`, because the lowered handler can set a control bit
 and return without forcing arithmetic lowering, thread-cursor lowering, or a full
 native dispatch engine.
 
-Lowered fetch and lowered dispatch are the next seam step after that: they take away
+Lowered fetch and lowered dispatch were the next seam step after that: they took away
 the host loop's direct knowledge of `thread_cells[ip]` and of "which lowered handler
-does this `xt` mean right now?" without yet forcing full native loop ownership.
+does this `xt` mean right now?" This pass is the first explicit `NEXT`-convergence
+step: it keeps Python as the outer loop, but moves fetch, dispatch, and continuation
+shape down into one shared lowered trampoline.
 
 `LIT` proves the first real operand path: the op body reads one inline cell through a
-thread cursor and pushes it through the promoted stack view without owning wrapper
-termination or outer dispatch.
+thread cursor and pushes it through the promoted stack view without owning outer
+dispatch.
 
 `ADD` is the next good lowered step because it proves the first binary stack kernel
 shape over the same promoted stack view without introducing branch or return-stack
@@ -226,8 +237,9 @@ decision, while still staying far short of return-stack or `DOCOL` complexity.
 `DOCOL` is the next big seam because it finally exercises the other major metadata
 axis: `needs_current_xt` and `needs_return_stack`. The op body itself stays small, but
 shared state now has to carry enough information to enter a child thread and later let
-lowered `EXIT` restore the caller. With explicit exact-`ip` control in shared state,
-those handlers no longer need a fake pre-increment sentinel like `ip = -1`.
+lowered `EXIT` restore the caller. In this pass those control-shaping handlers now
+rejoin the shared lowered trampoline directly, which is much closer to a real `NEXT`
+than the older exact-`ip` side-channel step.
 
 ## Non-Obvious Failure Modes
 
@@ -244,10 +256,10 @@ It is also easy to let `DOCOL` and `EXIT` drag the whole model into a much large
 native-dispatch rewrite too early. This pass still keeps the question narrower than
 that: shared state plus local op bodies, with Python continuing to own outer dispatch.
 
-It is also easy to let the local op body own wrapper termination. In this lab,
-`op_halt_ir(...)` and `op_lit_ir(...)` only emit their local effects; the wrapper adds
-`ret void` after the op body returns. That keeps the op bodies closer to the long-term
-lowering shape.
+It is also easy to let the local op body own whole-step termination. In this lab,
+`op_halt_ir(...)`, `op_lit_ir(...)`, and friends only emit their local effects plus a
+branch to a named continuation target. The shared step trampoline owns the final
+`ret void` sites. That keeps the op bodies closer to the long-term lowering shape.
 
 It is also easy to lower too much state too soon. This lab keeps the state struct
 small on purpose so the host/JIT boundary stays obvious.
