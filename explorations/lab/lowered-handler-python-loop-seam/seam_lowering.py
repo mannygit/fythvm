@@ -471,20 +471,18 @@ def emit_resolved_handler_id(
         return found_word_index, resolved_handler_id, dictionary_ir
 
 
-def emit_dispatch_facts(
+def emit_dispatch_current_word(
     *,
     builder: ir.IRBuilder,
     state: LoweredLoopStateView,
-    fetch_block: ir.Block,
+    dispatch_current_block: ir.Block,
     dispatch_custom_block: ir.Block,
     dispatch_primitive_block: ir.Block,
     dispatch_resolved_block: ir.Block,
     name_prefix: str,
 ) -> LoweredCurrentWordIR:
-    builder.branch(fetch_block)
-
-    with builder.goto_block(fetch_block):
-        current_xt = emit_fetch_current_xt(builder, state, name_prefix=f"{name_prefix}_fetch")
+    with builder.goto_block(dispatch_current_block):
+        current_xt = state.current_xt.load(name=f"{name_prefix}_current_xt")
         found_word_index, resolved_handler_id, dictionary_ir = emit_resolved_handler_id(
             builder=builder,
             state=state,
@@ -586,21 +584,24 @@ def define_lowered_interpreter(
     state_ptr.name = "state"
     state = STATE_HANDLE.bind(builder, state_ptr)
     fetch_block = function.append_basic_block("fetch")
+    dispatch_current_block = function.append_basic_block("dispatch_current_word")
     dispatch_custom_block = function.append_basic_block("dispatch_custom_word")
     dispatch_primitive_block = function.append_basic_block("dispatch_primitive")
     dispatch_resolved_block = function.append_basic_block("dispatch_resolved")
-    dispatch_current_block = function.append_basic_block("dispatch_current_word")
-    dispatch_current_custom_block = function.append_basic_block("dispatch_current_custom_word")
-    dispatch_current_primitive_block = function.append_basic_block("dispatch_current_primitive")
-    dispatch_current_resolved_block = function.append_basic_block("dispatch_current_resolved")
     advance_ip_block = function.append_basic_block("advance_ip")
     refetch_block = function.append_basic_block("refetch")
     halt_block = function.append_basic_block("halt")
     return_block = function.append_basic_block("return")
-    current_word = emit_dispatch_facts(
+    builder.branch(fetch_block)
+
+    with builder.goto_block(fetch_block):
+        emit_fetch_current_xt(builder, state, name_prefix=f"{function_name}_fetch")
+        builder.branch(dispatch_current_block)
+
+    current_word = emit_dispatch_current_word(
         builder=builder,
         state=state,
-        fetch_block=fetch_block,
+        dispatch_current_block=dispatch_current_block,
         dispatch_custom_block=dispatch_custom_block,
         dispatch_primitive_block=dispatch_primitive_block,
         dispatch_resolved_block=dispatch_resolved_block,
@@ -649,23 +650,6 @@ def define_lowered_interpreter(
                 halt_block=halt_block,
                 labeled_continuation_value=labeled_continuation_value,
             )
-
-    with builder.goto_block(dispatch_current_block):
-        execute_current_xt = state.current_xt.load(name="execute_current_xt")
-        _execute_found_word_index, execute_resolved_handler_id, _execute_dictionary_ir = emit_resolved_handler_id(
-            builder=builder,
-            state=state,
-            current_xt=execute_current_xt,
-            dispatch_custom_block=dispatch_current_custom_block,
-            dispatch_primitive_block=dispatch_current_primitive_block,
-            dispatch_resolved_block=dispatch_current_resolved_block,
-            name_prefix=f"{function_name}_execute",
-        )
-
-    builder.position_at_end(dispatch_current_resolved_block)
-    execute_dispatcher = builder.switch(execute_resolved_handler_id, default_block)
-    for handler_id, case_block in case_blocks.items():
-        execute_dispatcher.add_case(I32(handler_id), case_block)
 
     with builder.goto_block(default_block):
         state.halt_requested.store(TRUE_BIT)
