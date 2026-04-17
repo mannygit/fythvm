@@ -555,6 +555,39 @@ def test_struct_view_stack_access_supports_reset_push_pop2_and_peek() -> None:
     assert ctx.stack[3] == 12
 
 
+def test_struct_view_stack_access_supports_binary_reduce() -> None:
+    configure_llvm()
+
+    ctx_handle = StructHandle.literal("tiny stack context", ir.ArrayType(I16, 4), I32, view_type=TinyStackView)
+    module = ir.Module(name="stack_binary_reduce_test")
+    module.triple = binding.get_default_triple()
+
+    apply_fn = ir.Function(module, ir.FunctionType(I16, [ctx_handle.ir_type.as_pointer(), I16, I16]), name="apply_add")
+    builder = ir.IRBuilder(apply_fn.append_basic_block("entry"))
+    ctx = ctx_handle.bind(builder, apply_fn.args[0])
+    stack = StructViewStackAccess(ctx).bind(builder)
+    stack.reset(I32(4))
+    stack.push(apply_fn.args[1], name="push_lhs_sp")
+    stack.push(apply_fn.args[2], name="push_rhs_sp")
+    stack.binary_reduce(
+        lambda ir_builder, lhs, rhs: ir_builder.add(lhs, rhs, name="sum"),
+        result_index_name="sum_index",
+        result_ptr_name="sum_ptr",
+    )
+    builder.ret(stack.peek(name="top"))
+
+    compiled = compile_ir_module(module)
+    apply_add = ctypes.CFUNCTYPE(ctypes.c_int16, ctypes.POINTER(TinyStackContext), ctypes.c_int16, ctypes.c_int16)(
+        compiled.function_address("apply_add")
+    )
+
+    ctx = TinyStackContext()
+    result = apply_add(ctypes.byref(ctx), 7, 5)
+    assert result == 12
+    assert ctx.sp == 3
+    assert ctx.stack[3] == 12
+
+
 def test_struct_view_stack_access_shape_predicates_follow_stack_capacity() -> None:
     configure_llvm()
 

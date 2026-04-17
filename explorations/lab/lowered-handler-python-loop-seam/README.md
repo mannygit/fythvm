@@ -55,7 +55,7 @@ surfaces, not backend policy:
 - `LIT` declares stack egress plus `needs_thread_cursor=True`
 - the lowered op body is shaped like `op_lit_ir(builder, *, data_stack, thread_cursor, err)`
 - `ADD` declares stack ingress/egress and lowers as a binary reducer over
-  `BoundStackAccess`
+  the promoted `BoundStackAccess.binary_reduce(...)` helper
 - the wrapper function injects `control` and `err` from the descriptor requirements
 - the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
   when the descriptor requirements ask for them

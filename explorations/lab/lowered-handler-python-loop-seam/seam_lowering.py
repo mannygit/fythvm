@@ -107,10 +107,11 @@ def op_add_ir(
     """Emit ADD's local IR effect without owning wrapper termination."""
 
     _ = err
-    pair = data_stack.pop2(result_index_name="add_result_index")
-    result = builder.add(pair.lhs, pair.rhs, name="add_result")
-    builder.store(result, data_stack.slot(pair.result_index, name="add_result_ptr"))
-    data_stack.store_sp(pair.result_index)
+    data_stack.binary_reduce(
+        lambda ir_builder, lhs, rhs: ir_builder.add(lhs, rhs, name="add_result"),
+        result_index_name="add_result_index",
+        result_ptr_name="add_result_ptr",
+    )
 
 
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {

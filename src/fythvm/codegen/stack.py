@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from llvmlite import ir
@@ -43,6 +44,20 @@ class BoundStackAccess:
 
     def pop2(self, *, result_index_name: str = "lhs_index") -> PoppedPair:
         return self.access.pop2(self.builder, result_index_name=result_index_name)
+
+    def binary_reduce(
+        self,
+        reducer: Callable[[ir.IRBuilder, ir.Value, ir.Value], ir.Value],
+        *,
+        result_index_name: str = "result_index",
+        result_ptr_name: str = "result_ptr",
+    ) -> ir.Value:
+        return self.access.binary_reduce(
+            self.builder,
+            reducer,
+            result_index_name=result_index_name,
+            result_ptr_name=result_ptr_name,
+        )
 
     def peek(self, *, name: str = "value") -> ir.Value:
         return self.access.peek(self.builder, name=name)
@@ -94,6 +109,20 @@ class AbstractStackAccess:
         result_index = builder.add(current_sp, I32(1), name=result_index_name)
         lhs = builder.load(self.slot(builder, result_index, name="lhs_ptr"), name="lhs")
         return PoppedPair(lhs=lhs, rhs=rhs, result_index=result_index)
+
+    def binary_reduce(
+        self,
+        builder: ir.IRBuilder,
+        reducer: Callable[[ir.IRBuilder, ir.Value, ir.Value], ir.Value],
+        *,
+        result_index_name: str = "result_index",
+        result_ptr_name: str = "result_ptr",
+    ) -> ir.Value:
+        pair = self.pop2(builder, result_index_name=result_index_name)
+        result = reducer(builder, pair.lhs, pair.rhs)
+        builder.store(result, self.slot(builder, pair.result_index, name=result_ptr_name))
+        self.store_sp(builder, pair.result_index)
+        return result
 
     def peek(self, builder: ir.IRBuilder, *, name: str = "value") -> ir.Value:
         current_sp = self.load_sp(builder)
