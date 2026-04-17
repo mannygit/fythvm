@@ -98,6 +98,8 @@ The neighboring helper/lowering consequence is:
 
 The current package direction is to let compiler/meta words live in a neighboring
 compiler-word registry rather than forcing them into the runtime instruction registry.
+That neighboring registry already exists in package code in
+`src/fythvm/dictionary/compiler_words.py`.
 
 ## Strong JonesForth Signals
 
@@ -148,6 +150,8 @@ For the current package pass, only the compile-time `S"` behavior is modeled:
 - it parses source text and emits `LITSTRING`, one length cell, and packed payload
   cells into the current definition
 - immediate-mode temporary storage behavior is deliberately left out for now
+- `IF` and `THEN` are also current compiler-word registry examples for compile-time
+  branch emission and patching
 
 ### `TO`
 

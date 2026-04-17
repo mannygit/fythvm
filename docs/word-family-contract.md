@@ -198,15 +198,15 @@ mechanics like tail-call dispatch versus loop-and-switch dispatch.
 
 The remaining open questions for this layer are now fairly focused.
 
-### 1. Should Associated-Data Source Become First-Class Package Metadata?
+### 1. Where Should Associated-Data Source Live Long-Term?
 
-The current leading direction is yes, or at least “explicit metadata around handlers”
-rather than something implied only by family labels.
+Associated-data source is already first-class package metadata on instruction
+descriptors.
 
-The unresolved choice is:
+The remaining design question is narrower:
 
-- put it directly on family descriptors
-- or put it in richer per-handler metadata layered over families
+- keep it solely as richer per-handler metadata layered over families
+- or later mirror some of that information on family descriptors too
 
 ### 2. How Much Metadata Belongs On Families Versus A Richer Handler Registry?
 
@@ -255,6 +255,6 @@ But the current direction is:
 The next family-adjacent step should be:
 
 1. keep the approved core family set
-2. make associated-data source explicit in package metadata or handler metadata
+2. keep associated-data source explicit in package metadata next to families
 3. layer `HandlerRequirements` beside families, not inside them
 4. only then deepen execution/lowering surfaces

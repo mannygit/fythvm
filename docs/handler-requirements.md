@@ -67,8 +67,8 @@ HandlerRequirements(
 )
 ```
 
-This now exists in package code, though the exact field set may still evolve as more
-execution shapes are exercised.
+This exists in package code today, though the exact field set may still evolve as
+more execution shapes are exercised.
 
 ## Canonical Requirement Fields
 
@@ -114,7 +114,8 @@ execution shapes are exercised.
 - `needs_patch_stack`
   - the handler or compiler/meta word needs control-flow patch bookkeeping
 
-This stays separate from runtime associated-data-source metadata.
+These fields already exist in current package metadata. They stay separate from
+runtime associated-data-source metadata.
 
 ## Associated-Data Source Versus Requirements
 
@@ -223,6 +224,13 @@ Important invariants:
   redirect control only through an injected jump/control surface, not by returning a
   synthetic `next_ip`
 
+The current lowered seam lab is already using this style with promoted package
+abstractions:
+
+- generated ctypes-backed struct views from `StructHandle.from_ctypes(...)`
+- promoted stack access via `StructViewStackAccess`
+- injected local lowering surfaces for `HALT` and `LIT`
+
 ## Kernels And Shared Lowering Shapes
 
 `HandlerRequirements` is also the natural home for shared lowering-kernel lookup.
@@ -257,10 +265,8 @@ This keeps handler-local lowering contracts stable even if dispatch form changes
 
 The remaining open points here are intentionally narrow.
 
-- whether associated-data source becomes first-class package metadata or remains inside
-  richer handler metadata
-- whether `HandlerRequirements` lives directly on instruction descriptors or in a
-  neighboring registry
+- whether requirements should live directly on instruction/compiler-word descriptors or
+  in a neighboring registry long-term
 - the minimal stable field set for package code
 - the first kernel ids/lookups to standardize
 - the exact injection convention for lowering functions

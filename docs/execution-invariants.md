@@ -185,7 +185,12 @@ The broad direction is settled, but later work still has to specify exactly what
 
 ### 5. What Metadata Needs To Be First-Class Before Real Lowering Work Starts?
 
+The key metadata is already first-class in package code:
+
+- associated-data source
+- `HandlerRequirements`
+
 The remaining sequencing question is:
 
-- how much associated-data-source and `HandlerRequirements` metadata should become
-  first-class before package/runtime code tries to lower handlers declaratively
+- which concrete lowered helper surfaces and runtime representations should be
+  stabilized next now that that metadata exists

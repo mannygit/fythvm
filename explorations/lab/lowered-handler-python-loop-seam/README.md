@@ -24,6 +24,11 @@ This lab keeps almost everything in Python:
   lab-local `ThreadCursorIR` can wrap `ip` without inventing a separate thread-state
   axis
 
+This lab is the direct lowering follow-on to
+[handler-requirements-python-loop](/Users/manny/fythvm/explorations/lab/handler-requirements-python-loop/README.md:1).
+It reuses promoted learnings from that semantic/reference lab rather than inventing a
+parallel model.
+
 The lab is split by concern inside its directory:
 
 - `seam_state.py`
@@ -53,6 +58,8 @@ surfaces, not backend policy:
 - the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
   when the descriptor requirements ask for them
 - the wrapper, not `op_halt_ir(...)`, adds the final `ret void`
+- the host-visible state projection is generated from ctypes layout, including logical
+  bitfield views for control state
 
 The lab now also has the next seam surface ready for `LIT`:
 
@@ -114,6 +121,13 @@ The important visible behavior is:
 - after the JIT call returns, Python sees `HALT_REQUESTED` set in shared state
 - the Python loop stops because of that state bit, not because the lowered function
   somehow owns the whole dispatch loop
+
+This lab explicitly demonstrates the first promoted lowering ingredients in one place:
+
+- generated ctypes projections
+- logical bitfield control fields
+- promoted stack access
+- lowered `LIT` and `HALT` bodies with injected surfaces
 
 ## Pattern / Takeaway
 

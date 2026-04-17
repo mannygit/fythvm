@@ -1,4 +1,13 @@
-"""Thin, hand-authored struct access helpers for llvmlite code generation."""
+"""Struct access, ctypes reification, and generated logical views for llvmlite.
+
+This module started as a thin bound-view layer over handwritten LLVM struct layouts.
+It now also owns promoted ``ctypes.Structure`` reification, including:
+
+- physical layout recovery with explicit padding
+- arrays, pointers, and nested struct lowering
+- generated logical view classes
+- logical bitfield access over shared physical storage
+"""
 
 from __future__ import annotations
 

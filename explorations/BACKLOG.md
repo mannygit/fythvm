@@ -93,11 +93,12 @@ close out. Keep the backlog small and explicit.
   - Goal: Show the smallest useful seam where Python owns dispatch but one handler is
     lowered and mutates shared host-visible state.
   - Why it matters: The next phase of interpreter work needs a slow lowering path
-    that does not immediately collapse visibility into a native dispatch engine.
-  - Takeaway: A good first seam is to lower `HALT`, let native code set a halt bit in
-    shared state, and let the Python loop decide what that means after the native call
-    returns. Use `HandlerRequirements` to inject lowered op surfaces and let the
-    wrapper, not the local op body, own `ret`.
+    that does not immediately collapse visibility into a native dispatch engine. This
+    is the first lowering follow-on to the HandlerRequirements-driven Python loop lab.
+  - Takeaway: Starting from the semantic/reference lab, a good next seam is to keep
+    Python in charge of dispatch while lowered handlers consume injected surfaces over
+    shared state. Lower `HALT` and `LIT`, let native code mutate control and stack
+    state, and let the wrapper, not the local op body, own `ret`.
   - Lab: `explorations/lab/lowered-handler-python-loop-seam/`
 
 - `handler-requirements-python-loop`
@@ -107,10 +108,11 @@ close out. Keep the backlog small and explicit.
     path without pretending the final runtime or lowering path is settled.
   - Why it matters: The repo now has family metadata, associated-data-source
     metadata, and `HandlerRequirements`; this lab makes that trio executable and easy
-    to inspect.
+    to inspect. It is the semantic/reference predecessor to the lowered seam lab.
   - Takeaway: Treat family as semantic grouping, associated-data source as the
     runtime data-location clue, and `HandlerRequirements` as the concrete injection,
-    cursor/jump, and preflight contract for local handler bodies.
+    cursor/jump, and preflight contract for local handler bodies before real IR
+    lowering enters the picture.
   - Lab: `explorations/lab/handler-requirements-python-loop/`
 
 - `python-shared-stack-kernels`

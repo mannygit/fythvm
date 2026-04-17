@@ -34,6 +34,33 @@ intrinsic trivia." The highest-value work is:
 5. delay real Forth execution work until the data model and generation boundaries are
    settled
 
+## Promotion Status Matrix
+
+This is the canonical repo-level view of what is already promoted, what is only
+partially promoted, and what remains exploratory.
+
+| Idea | Status | Current source of truth |
+| --- | --- | --- |
+| `StructHandle.from_ctypes(...)` physical layout reification | Promoted | `src/fythvm/codegen/structs.py` |
+| `StructHandle.from_ctypes(...)` generated logical views, bitfields, padding, arrays/pointers/nested structs, `view_source` | Promoted | `src/fythvm/codegen/structs.py` |
+| `HandlerRequirements` | Promoted | `src/fythvm/dictionary/instructions.py` |
+| `AssociatedDataSource` | Promoted | `src/fythvm/dictionary/instructions.py` |
+| compiler-word registry (`S"`, `IF`, `THEN`) | Promoted | `src/fythvm/dictionary/compiler_words.py` |
+| stack access abstractions | Promoted | `src/fythvm/codegen/stack.py` |
+| semantic/generated dictionary layout views | Promoted | `src/fythvm/dictionary/layout.py` |
+| lowered handler seam pattern | Still exploratory | `explorations/lab/lowered-handler-python-loop-seam/` |
+| generated-layout wrapper convention as repo-wide architecture | Partially promoted | lab-only convention, not yet a package-wide system |
+| thread-cursor / thread-emitter / patch-stack metadata | Promoted | `HandlerRequirements` and compiler-word metadata |
+| concrete thread-cursor / thread-emitter / patch-stack services | Still exploratory | current interpreter labs |
+
+The current interpreter labs should be understood as a sequence, not as competing
+designs:
+
+1. `handler-requirements-python-loop`
+   - semantic/reference lab
+2. `lowered-handler-python-loop-seam`
+   - first lowering follow-on that reuses those semantics
+
 ## What The Repo Has Learned
 
 ### 1. The end-to-end llvmlite pipeline is no longer the hard part
@@ -106,6 +133,11 @@ Important package outcomes:
 - [dictionary/schema.py](/Users/manny/fythvm/src/fythvm/dictionary/schema.py:1)
 - generated [dictionary/layout.py](/Users/manny/fythvm/src/fythvm/dictionary/layout.py:1)
 - the generator at [scripts/generate_dictionary_layout.py](/Users/manny/fythvm/scripts/generate_dictionary_layout.py:1)
+
+The key audit update here is that ctypes reification is now more promoted than the
+older summaries implied. The package no longer stops at physical layout recovery; it
+also supports generated logical view classes, logical bitfield access over shared
+storage, and inspectable generated view source.
 
 The lesson is that "layout projection" is not merely implementation detail. It is one
 of the main stable boundaries in the project.
@@ -328,6 +360,18 @@ The repo has already proven:
 - bitfield/logical view generation works
 - nested schema-family discovery works
 
+What is already package truth:
+
+- ctypes-to-IR reification with generated logical views
+- logical bitfield views over physical storage
+- schema-driven generated dictionary layout
+
+What is still not fully codified:
+
+- the repo-wide generated-core plus wrapper convention
+- the regeneration/editing workflow as an explicit project rule
+- when a consumer should rely on generated view classes versus hand-authored wrappers
+
 What is still needed is to make this feel like an architecture, not a successful set
 of examples.
 
@@ -382,7 +426,8 @@ Why this is second:
 ### Priority 3: Unify struct-aware codegen usage across package consumers
 
 The struct/view work is now mature enough that package consumers should converge on
-one style.
+one style. This is now a cleanup/unification priority, not a “prove the abstraction”
+priority.
 
 Recent progress:
 
@@ -418,6 +463,12 @@ Concrete work:
   - where `goto_block(...)` helps and where it hurts
 - document schema/layout/wrapper conventions
 - document when to keep a pure Python + `ctypes` reference runtime
+
+This priority now also includes keeping the promotion-status story explicit:
+
+- what is already package truth
+- what is still only proven in labs
+- which labs are semantic/reference artifacts versus lowering follow-ons
 - document what kinds of experiments belong in `explorations/` versus `src/`
 
 Why this matters:
