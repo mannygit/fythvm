@@ -242,6 +242,7 @@ def test_instruction_registry_exposes_docol_word_local_thread_metadata() -> None
     assert descriptor.requirements.min_return_stack_out_space == 1
     assert descriptor.requirements.needs_current_xt is True
     assert descriptor.requirements.needs_return_stack is True
+    assert descriptor.requirements.needs_execution_control is True
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "enter_thread"
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.DOCOL)) is dictionary.COLON_THREAD_FAMILY

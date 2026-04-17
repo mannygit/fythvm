@@ -12,7 +12,7 @@ This lab keeps almost everything in Python:
 
 - the thread is a tuple of raw cells
 - the dispatch loop is Python
-- `LIT`, `ADD`, `BRANCH`, `0BRANCH`, and `HALT` are lowered through wrapper functions in this pass
+- `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `HALT` are lowered through wrapper functions in this pass
 - the host-visible machine state is a tiny `ctypes.Structure`
 - the lowered wrapper reifies that `ctypes` layout through the promoted
   `StructHandle.from_ctypes(...)` helper in package code
@@ -21,8 +21,11 @@ This lab keeps almost everything in Python:
 - the state now uses promoted stack-view naming and shape (`stack` + downward-growing
   `sp`) so lowered handlers can use `StructViewStackAccess` directly
 - the state also carries current-thread storage (`thread_cells` + `thread_length`) so a
-  lab-local `ThreadCursorIR` can wrap `ip` without inventing a separate thread-state
+  promoted `ThreadCursorIR` can wrap `ip` without inventing a separate thread-state
   axis
+- the state also carries current-word thread storage plus a small return-frame area so
+  `DOCOL` can enter a child thread without collapsing the whole interpreter into a
+  native dispatch loop
 
 This lab is the direct lowering follow-on to
 [handler-requirements-python-loop](/Users/manny/fythvm/explorations/lab/handler-requirements-python-loop/README.md:1).
@@ -38,13 +41,15 @@ The lab is split by concern inside its directory:
 - `seam_runtime.py`
   - Python-side dispatch, preflight, and execution
 - `seam_thread.py`
-  - current-thread storage helpers and `ThreadCursorIR`
+  - ctypes thread-buffer helpers
+- `seam_return.py`
+  - lab-local return-frame storage helpers over shared state
 - `seam_report.py`
   - labeled output for scenarios
 - `run.py`
   - the small orchestrating entrypoint
 
-`HALT`, `LIT`, `ADD`, `BRANCH`, and `0BRANCH` are now lowered. Their generated wrapper functions take a pointer to
+`HALT`, `LIT`, `ADD`, `BRANCH`, `0BRANCH`, and `DOCOL` are now lowered. Their generated wrapper functions take a pointer to
 that shared state and return normally to Python.
 
 The important wiring detail is that `HandlerRequirements` is used for injected
@@ -61,14 +66,20 @@ surfaces, not backend policy:
 - `0BRANCH` declares stack ingress plus `needs_thread_cursor=True` and
   `needs_thread_jump=True`
 - the lowered op body is shaped like `op_zbranch_ir(builder, *, data_stack, thread_cursor, thread_jump, err)`
+- `DOCOL` declares `needs_current_xt=True`, `needs_return_stack=True`, and
+  `needs_execution_control=True`
+- the lowered op body is shaped like
+  `op_docol_ir(builder, *, current_word_thread, return_stack, control, err)`
 - the wrapper function injects `control` and `err` from the descriptor requirements
 - the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
   when the descriptor requirements ask for them
+- the wrapper now also injects promoted `CurrentWordThreadIR` plus a lab-local
+  `ReturnStackIR` when `DOCOL` asks for them
 - the wrapper, not `op_halt_ir(...)`, adds the final `ret void`
 - the host-visible state projection is generated from ctypes layout, including logical
   bitfield views for control state
 
-The lab now also has the next seam surface ready for `LIT`:
+The lab now also has the next seam surfaces ready for threaded entry:
 
 - `thread_cursor` is treated as a capability wrapper around `ip` plus current-thread
   storage
@@ -77,9 +88,12 @@ The lab now also has the next seam surface ready for `LIT`:
   `needs_thread_cursor=True`
 - the lowered wrapper can inject `ThreadJumpIR` for handlers that declare
   `needs_thread_jump=True`
+- the lowered wrapper can inject `CurrentWordThreadIR` for handlers that declare
+  `needs_current_xt=True`
 
-Backend choice stays lab-local, but both words in the current scenarios now route
-through lowered wrappers.
+Backend choice stays lab-local, but most words in the current scenarios now route
+through lowered wrappers while `EXIT` still runs in Python against the same shared
+state.
 
 That means the seam is intentionally narrow:
 
@@ -104,11 +118,13 @@ docker compose run --rm dev uv run python explorations/lab/lowered-handler-pytho
 
 The run prints:
 
-- the generated LLVM IR for the lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, and `HALT` handlers
+- the generated LLVM IR for the lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `HALT` handlers
 - a `HALT`-only scenario
 - a scenario where the JIT handles `LIT`, `ADD`, and `HALT`
 - a scenario where the JIT handles `LIT`, `BRANCH`, and `HALT`
 - a scenario where the JIT handles `LIT`, `0BRANCH`, and `HALT`
+- a scenario where the JIT handles `DOCOL`, enters a child thread, and lets Python
+  handle `EXIT` against the same shared return-frame state
 - per-step traces with:
   - word
   - backend (`python` or `jit`)
@@ -138,7 +154,9 @@ This lab explicitly demonstrates the first promoted lowering ingredients in one 
 - generated ctypes projections
 - logical bitfield control fields
 - promoted stack access
-- lowered `LIT`, `ADD`, `BRANCH`, and `HALT` bodies with injected surfaces
+- promoted thread cursor/jump/current-word-thread access
+- lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `HALT` bodies with injected
+  surfaces
 
 ## Pattern / Takeaway
 
@@ -169,6 +187,11 @@ surface without yet bringing in conditional control or return-stack semantics.
 thread-jump surface composes cleanly with a real stack input and a conditional
 decision, while still staying far short of return-stack or `DOCOL` complexity.
 
+`DOCOL` is the next big seam because it finally exercises the other major metadata
+axis: `needs_current_xt` and `needs_return_stack`. The op body itself stays small, but
+shared state now has to carry enough information to enter a child thread and later let
+host-side `EXIT` restore the caller.
+
 ## Non-Obvious Failure Modes
 
 One easy mistake is to think that because `HALT` is lowered, the lowered function
@@ -179,6 +202,11 @@ Another easy mistake is to ignore metadata and route handlers through ad hoc opc
 checks. This lab keeps backend choice in a small explicit lab registry and uses
 `HandlerRequirements` for what it was meant to do: declare the resources that the
 local op body needs.
+
+It is also easy to let `DOCOL` drag the whole model into an all-native return-stack
+design too early. This pass deliberately keeps `EXIT` in Python so the question stays
+about shared state and injected surfaces, not about committing the whole threaded
+return path to native code at once.
 
 It is also easy to let the local op body own wrapper termination. In this lab,
 `op_halt_ir(...)` and `op_lit_ir(...)` only emit their local effects; the wrapper adds
@@ -194,21 +222,20 @@ small on purpose so the host/JIT boundary stays obvious.
 - you want to lower one handler without committing to a native dispatch loop yet
 - you want to prove that a shared state struct is enough for Python/native handoff
 - you want a visibility-friendly starting point before lowering more kernels like
-  `+`, or
-  return-stack behavior
+  `+`, thread jumps, or threaded entry
 
 ## Avoid When
 
 - you already need native dispatch for most handlers
 - the interesting question is about tail calls, `musttail`, or threaded continuation
-- you need full `DOCOL` / return-stack semantics rather than just a halt-request bit
+- you need full native `EXIT` / return-stack semantics rather than a shared-state seam
 - you need performance answers instead of seam-shape answers
 
 ## Next Questions
 
-- Should the next lowered handler be `+` or a branch primitive?
-- When should the shared state grow from a `HALT_REQUESTED` bit into richer control
-  state?
+- When should `EXIT` move from host-side return-stack restoration into a lowered op?
+- Should the promoted thread-access layer grow a reusable current-thread replacement
+  helper once `DOCOL` and `EXIT` both want it?
 - At what point does the Python loop stop being the right place for dispatch?
 - Which next seam capabilities belong in `HandlerRequirements` after
   `needs_execution_control`?

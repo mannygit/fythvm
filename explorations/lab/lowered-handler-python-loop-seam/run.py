@@ -1,4 +1,4 @@
-"""Demonstrate the first Python-loop to lowered-handler seam."""
+"""Demonstrate the Python-loop to progressively lowered-handler seam."""
 
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ def main() -> None:
     _module, compiled, lowered_functions, lowered_addresses = build_lowered_runtime()
 
     print("== Question ==")
-    print("What is the smallest useful seam between a Python dispatch loop and one lowered handler?")
+    print("What is the smallest useful seam between a Python dispatch loop and a gradually lowered handler set?")
     print()
     print("== Generated IR ==")
     print(compiled.llvm_ir.rstrip())
     print()
     print("== Takeaway ==")
-    print("Inject lowered op resources from HandlerRequirements; let the wrapper own ret and let Python own dispatch.")
+    print("Inject lowered op resources from HandlerRequirements; let the wrapper own ret, let Python own dispatch, and grow the seam one honest surface at a time.")
     print()
 
     for scenario in SCENARIOS:

@@ -7,6 +7,7 @@ from fythvm.codegen import BoundStructView, StructHandle
 
 STATE_HALT_REQUESTED = 0x01
 STACK_CAPACITY = 8
+RETURN_STACK_CAPACITY = 8
 
 
 class LoweredLoopState(ctypes.Structure):
@@ -17,8 +18,14 @@ class LoweredLoopState(ctypes.Structure):
         ("current_xt", ctypes.c_int32),
         ("thread_cells", ctypes.POINTER(ctypes.c_int32)),
         ("thread_length", ctypes.c_int32),
+        ("current_word_thread_cells", ctypes.POINTER(ctypes.c_int32)),
+        ("current_word_thread_length", ctypes.c_int32),
         ("stack", ctypes.c_int32 * STACK_CAPACITY),
         ("sp", ctypes.c_int32),
+        ("return_thread_cells", ctypes.POINTER(ctypes.c_int32) * RETURN_STACK_CAPACITY),
+        ("return_thread_length", ctypes.c_int32 * RETURN_STACK_CAPACITY),
+        ("return_ip", ctypes.c_int32 * RETURN_STACK_CAPACITY),
+        ("rsp", ctypes.c_int32),
     ]
 
 STATE_HANDLE = StructHandle.from_ctypes(

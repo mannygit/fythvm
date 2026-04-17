@@ -20,6 +20,7 @@ from .stack import (
     StructViewStackAccess,
 )
 from .structs import BitField, BoundBitField, BoundStructField, BoundStructView, StructField, StructHandle
+from .thread import CurrentWordThreadIR, ThreadCursorIR, ThreadJumpIR, ThreadRefIR
 from .types import I16, I16_PTR, I32
 
 __all__ = [
@@ -45,6 +46,10 @@ __all__ = [
     "StructViewStackAccess",
     "SwitchCaseSpec",
     "SwitchDispatcher",
+    "ThreadCursorIR",
+    "ThreadJumpIR",
+    "CurrentWordThreadIR",
+    "ThreadRefIR",
     "compile_ir_module",
     "emit_tagged_cell_dispatch",
     "configure_llvm",

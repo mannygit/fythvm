@@ -9,6 +9,7 @@ from llvmlite import binding, ir
 from fythvm.codegen import (
     BitField,
     BoundStructView,
+    CurrentWordThreadIR,
     ContextStructStackAccess,
     Join,
     ParamLoop,
@@ -17,6 +18,8 @@ from fythvm.codegen import (
     StructHandle,
     StructViewStackAccess,
     SwitchDispatcher,
+    ThreadCursorIR,
+    ThreadJumpIR,
     compare_aligned_i32_regions,
     compile_ir_module,
     configure_llvm,
@@ -40,6 +43,16 @@ class TinyStackContext(ctypes.Structure):
 class TinyStackView(BoundStructView):
     stack = StructField(0)
     sp = StructField(1)
+
+
+class TinyThreadState(ctypes.Structure):
+    _fields_ = [
+        ("ip", ctypes.c_int32),
+        ("thread_cells", ctypes.POINTER(ctypes.c_int32)),
+        ("thread_length", ctypes.c_int32),
+        ("current_word_thread_cells", ctypes.POINTER(ctypes.c_int32)),
+        ("current_word_thread_length", ctypes.c_int32),
+    ]
 
 
 class PairView(BoundStructView):
@@ -648,3 +661,62 @@ def test_struct_view_stack_access_shape_predicates_follow_stack_capacity() -> No
 
     ctx.sp = 3
     assert encode(ctypes.byref(ctx)) == 5
+
+
+def test_thread_cursor_and_jump_follow_ctypes_reified_state() -> None:
+    configure_llvm()
+
+    state_handle = StructHandle.from_ctypes("tiny thread state", TinyThreadState)
+    module = ir.Module(name="thread_cursor_and_jump_test")
+    module.triple = binding.get_default_triple()
+
+    apply_fn = ir.Function(module, ir.FunctionType(I32, [state_handle.ir_type.as_pointer()]), name="apply")
+    builder = ir.IRBuilder(apply_fn.append_basic_block("entry"))
+    state = state_handle.bind(builder, apply_fn.args[0])
+    cursor = ThreadCursorIR(builder=builder, state=state)
+    jump = ThreadJumpIR(builder=builder, state=state)
+    offset = cursor.read_inline_cell()
+    jump.branch_relative(offset)
+    builder.ret(state.ip.load(name="final_ip"))
+
+    compiled = compile_ir_module(module)
+    apply = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.POINTER(TinyThreadState))(compiled.function_address("apply"))
+
+    thread = (ctypes.c_int32 * 3)(17, 2, 99)
+    state = TinyThreadState()
+    state.ip = 0
+    state.thread_cells = ctypes.cast(thread, ctypes.POINTER(ctypes.c_int32))
+    state.thread_length = 3
+
+    result = apply(ctypes.byref(state))
+    assert result == 3
+    assert state.ip == 3
+
+
+def test_current_word_thread_ref_reads_cells_and_length_from_reified_state() -> None:
+    configure_llvm()
+
+    state_handle = StructHandle.from_ctypes("tiny current word thread state", TinyThreadState)
+    module = ir.Module(name="current_word_thread_ref_test")
+    module.triple = binding.get_default_triple()
+
+    apply_fn = ir.Function(module, ir.FunctionType(I32, [state_handle.ir_type.as_pointer()]), name="apply")
+    builder = ir.IRBuilder(apply_fn.append_basic_block("entry"))
+    state = state_handle.bind(builder, apply_fn.args[0])
+    current_word_thread = CurrentWordThreadIR(state=state)
+    thread = current_word_thread.ref()
+    first_cell_ptr = builder.gep(thread.cells, [I32(0)], inbounds=True, name="first_cell_ptr")
+    first_cell = builder.load(first_cell_ptr, name="first_cell")
+    encoded = builder.add(first_cell, thread.length, name="encoded")
+    builder.ret(encoded)
+
+    compiled = compile_ir_module(module)
+    apply = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.POINTER(TinyThreadState))(compiled.function_address("apply"))
+
+    current_word_thread = (ctypes.c_int32 * 3)(10, 20, 30)
+    state = TinyThreadState()
+    state.current_word_thread_cells = ctypes.cast(current_word_thread, ctypes.POINTER(ctypes.c_int32))
+    state.current_word_thread_length = 3
+
+    result = apply(ctypes.byref(state))
+    assert result == 13

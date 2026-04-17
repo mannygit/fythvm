@@ -422,6 +422,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
                 min_return_stack_out_space=1,
                 needs_current_xt=True,
                 needs_return_stack=True,
+                needs_execution_control=True,
                 kernel="enter_thread",
             ),
         ),

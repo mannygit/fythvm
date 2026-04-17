@@ -15,6 +15,7 @@ class Scenario:
     expected_final_ip: int
     expected_state_flags: int
     expected_trace_backends: tuple[str, ...]
+    custom_words: tuple["WordSpec", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,14 @@ class ScenarioResult:
     final_ip: int
     state_flags: int
     trace: tuple[TraceRow, ...]
+
+
+@dataclass(frozen=True)
+class WordSpec:
+    xt: int
+    name: str
+    handler_id: int
+    thread: tuple[int, ...]
 
 
 SCENARIOS = (
@@ -93,5 +102,31 @@ SCENARIOS = (
         expected_final_ip=6,
         expected_state_flags=STATE_HALT_REQUESTED,
         expected_trace_backends=("jit", "jit", "jit"),
+    ),
+    Scenario(
+        name="jit-docol-then-python-exit-then-jit-halt",
+        thread=(
+            1000,
+            int(dictionary.PrimitiveInstruction.HALT),
+        ),
+        expected_stack=(5,),
+        expected_final_ip=1,
+        expected_state_flags=STATE_HALT_REQUESTED,
+        expected_trace_backends=("jit", "jit", "jit", "jit", "python", "jit"),
+        custom_words=(
+            WordSpec(
+                xt=1000,
+                name="SUM23",
+                handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
+                thread=(
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    2,
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    3,
+                    int(dictionary.PrimitiveInstruction.ADD),
+                    int(dictionary.PrimitiveInstruction.EXIT),
+                ),
+            ),
+        ),
     ),
 )

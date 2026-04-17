@@ -7,27 +7,59 @@ from typing import Callable
 from llvmlite import ir
 
 from fythvm import dictionary
-from fythvm.codegen import BoundStackAccess, StructViewStackAccess
+from fythvm.codegen import (
+    BoundStackAccess,
+    CurrentWordThreadIR,
+    StructViewStackAccess,
+    ThreadCursorIR,
+    ThreadJumpIR,
+    ThreadRefIR,
+)
 from fythvm.codegen.llvm import compile_ir_module
 
 from seam_state import LoweredLoopState, LoweredLoopStateView, STATE_HANDLE
-from seam_thread import ThreadCursorIR, ThreadJumpIR
+from seam_return import ReturnStackIR
 
 
 I1 = ir.IntType(1)
+I32 = ir.IntType(32)
 LoweredOp = Callable[..., None]
 HALT_REQUESTED_BIT = I1(1)
+ENTRY_IP_BEFORE_HOST_ADVANCE = I32(-1)
 
 
 @dataclass(frozen=True)
 class LoweredExecutionControlIR:
-    """Execution-control helper injected into lowered op bodies."""
+    """Execution-control helper injected into lowered op bodies.
+
+    This seam still lets the Python host loop apply the normal post-step
+    ``ip += 1`` after a handler returns. Entering a child thread therefore
+    installs ``ENTRY_IP_BEFORE_HOST_ADVANCE`` rather than literal thread index
+    ``0`` so the next host-side increment lands on the first child-thread cell.
+
+    That sentinel is a seam artifact, not the semantic meaning of `DOCOL`.
+    The real local effect is "switch to the child thread so execution resumes at
+    its first word." A different outer-loop contract could install `ip = 0`
+    directly and remove this pre-increment convention.
+    """
 
     builder: ir.IRBuilder
     state: LoweredLoopStateView
 
     def request_halt(self) -> None:
         self.state.halt_requested.store(HALT_REQUESTED_BIT)
+
+    def enter_thread(self, *, thread: ThreadRefIR, return_stack: ReturnStackIR) -> None:
+        current_thread = ThreadRefIR(
+            cells=self.state.thread_cells.load(name="current_thread_cells"),
+            length=self.state.thread_length.load(name="current_thread_length"),
+        )
+        current_ip = self.state.ip.load(name="current_ip")
+        return_ip = self.builder.add(current_ip, I32(1), name="return_ip")
+        return_stack.push_frame(thread=current_thread, return_ip=return_ip)
+        self.state.thread_cells.store(thread.cells)
+        self.state.thread_length.store(thread.length)
+        self.state.ip.store(ENTRY_IP_BEFORE_HOST_ADVANCE)
 
 
 @dataclass(frozen=True)
@@ -65,6 +97,10 @@ def injected_ir_resources(
         kwargs["thread_cursor"] = ThreadCursorIR(builder=builder, state=state)
     if requirements.needs_thread_jump:
         kwargs["thread_jump"] = ThreadJumpIR(builder=builder, state=state)
+    if requirements.needs_current_xt:
+        kwargs["current_word_thread"] = CurrentWordThreadIR(state=state)
+    if requirements.needs_return_stack:
+        kwargs["return_stack"] = ReturnStackIR(builder=builder, state=state)
     if requirements.needs_execution_control:
         kwargs["control"] = LoweredExecutionControlIR(builder=builder, state=state)
     if requirements.needs_error_exit:
@@ -148,6 +184,21 @@ def op_zbranch_ir(
     thread_jump.branch_if_zero(condition, offset)
 
 
+def op_docol_ir(
+    builder: ir.IRBuilder,
+    *,
+    current_word_thread: CurrentWordThreadIR,
+    return_stack: ReturnStackIR,
+    control: LoweredExecutionControlIR,
+    err: LoweredErrorExitIR,
+) -> None:
+    """Emit DOCOL's local IR effect without owning wrapper termination."""
+
+    _ = builder
+    _ = err
+    control.enter_thread(thread=current_word_thread.ref(), return_stack=return_stack)
+
+
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
     int(dictionary.PrimitiveInstruction.LIT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.LIT),
@@ -172,6 +223,12 @@ LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
         function_name="lowered_zbranch",
         op=op_zbranch_ir,
         note="pop one stack cell, read one inline branch offset, and redirect ip when the value is zero",
+    ),
+    int(dictionary.PrimitiveInstruction.DOCOL): LoweredHandlerSpec(
+        handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
+        function_name="lowered_docol",
+        op=op_docol_ir,
+        note="push a return frame and enter the current word thread through lowered thread surfaces",
     ),
     int(dictionary.PrimitiveInstruction.HALT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.HALT),
