@@ -72,8 +72,8 @@ The lab is split by concern inside its directory:
 
 `HALT`, `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, and `EXIT` are now lowered
 through one shared `NEXT`-like step trampoline. The op bodies stay local and
-declarative, but they now rejoin shared continuation blocks instead of setting a
-side bit and waiting for later host-side interpretation.
+declarative, and the framework now decides continuation from descriptor metadata
+instead of asking the op body to branch into the trampoline directly.
 
 The important wiring detail is that `HandlerRequirements` is used for injected
 surfaces, not backend policy:
@@ -93,8 +93,10 @@ surfaces, not backend policy:
   `needs_execution_control=True`
 - the lowered op body is shaped like
   `op_docol_ir(builder, *, current_word_thread, return_stack, control, err)`
-- the shared step trampoline injects `control`, `err`, and a named continuation
-  surface into the local op body
+- `0BRANCH` is the one special case that also declares
+  `needs_labeled_continuation=True`
+- the shared step interprets descriptor continuation metadata after the local op body
+  runs
 - the shared step trampoline injects `StructViewStackAccess(state).bind(builder)` and
   `ThreadCursorIR` when the descriptor requirements ask for them
 - the shared step trampoline now also injects dictionary-backed current-word thread
@@ -125,10 +127,12 @@ fallthrough-versus-exact continuation:
 - lowered dispatch resolves custom-word CFAs through the dictionary first
 - then it falls back to primitive handler ids and enters the already-defined local op
   emitter for that handler
-- ordinary ops branch to a shared `advance_ip` block
-- `BRANCH`, taken `0BRANCH`, `DOCOL`, and `EXIT` branch directly to a shared
-  refetch block after installing an exact next `ip`
-- `HALT` branches to a shared `halt` block
+- ordinary ops continue through descriptor metadata to a shared `advance_ip` block
+- `BRANCH`, `DOCOL`, and `EXIT` all use `EXACT_IP` continuation metadata
+- `0BRANCH` is the one labeled-continuation op; it selects `branch_taken` versus
+  `branch_fallthrough` as an SSA continuation outcome, and the framework maps those
+  labels to `refetch` versus `advance_ip`
+- `HALT` uses `HALT` continuation metadata and re-enters the shared `halt` block
 
 That means the seam is intentionally narrow:
 
@@ -186,8 +190,8 @@ The important visible behavior is:
 - the Python loop stops because of that state bit, not because the lowered function
   somehow owns the whole dispatch loop
 - continuation is no longer expressed through `exact_ip_requested`
-- `DOCOL`, `EXIT`, `BRANCH`, and taken `0BRANCH` now rejoin the shared step
-  trampoline through CFG, not through a side bit in shared state
+- continuation is now a property of the operation descriptor, with one labeled special
+  case for `0BRANCH`, rather than a direct trampoline call from every op body
 
 This lab explicitly demonstrates the first promoted lowering ingredients in one place:
 
@@ -232,7 +236,9 @@ surface without yet bringing in conditional control or return-stack semantics.
 
 `0BRANCH` is the natural follow-on because it proves that the same lowered
 thread-jump surface composes cleanly with a real stack input and a conditional
-decision, while still staying far short of return-stack or `DOCOL` complexity.
+decision. It is also the one case where simple static continuation metadata is not
+enough, so the handler gets a labeled-continuation surface and the framework maps the
+chosen SSA label back into shared `NEXT` behavior.
 
 `DOCOL` is the next big seam because it finally exercises the other major metadata
 axis: `needs_current_xt` and `needs_return_stack`. The op body itself stays small, but

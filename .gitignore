@@ -185,4 +185,4 @@ cython_debug/
 .cursorindexingignore
 
 # Seam-lab LLVM IR artifacts
-/lowered-handler-python-loop-seam.ll
+/lowered-handler-python-loop-seam*.ll
