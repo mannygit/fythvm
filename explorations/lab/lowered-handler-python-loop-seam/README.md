@@ -12,7 +12,7 @@ This lab keeps almost everything in Python:
 
 - the thread is a tuple of raw cells
 - the dispatch loop is Python
-- `LIT` and `HALT` are both lowered through wrapper functions in this pass
+- `LIT`, `ADD`, and `HALT` are lowered through wrapper functions in this pass
 - the host-visible machine state is a tiny `ctypes.Structure`
 - the lowered wrapper reifies that `ctypes` layout through the promoted
   `StructHandle.from_ctypes(...)` helper in package code
@@ -44,7 +44,7 @@ The lab is split by concern inside its directory:
 - `run.py`
   - the small orchestrating entrypoint
 
-`HALT` and `LIT` are now lowered. Their generated wrapper functions take a pointer to
+`HALT`, `LIT`, and `ADD` are now lowered. Their generated wrapper functions take a pointer to
 that shared state and return normally to Python.
 
 The important wiring detail is that `HandlerRequirements` is used for injected
@@ -54,6 +54,8 @@ surfaces, not backend policy:
 - the lowered op body is shaped like `op_halt_ir(builder, *, control, err)`
 - `LIT` declares stack egress plus `needs_thread_cursor=True`
 - the lowered op body is shaped like `op_lit_ir(builder, *, data_stack, thread_cursor, err)`
+- `ADD` declares stack ingress/egress and lowers as a binary reducer over
+  `BoundStackAccess`
 - the wrapper function injects `control` and `err` from the descriptor requirements
 - the wrapper injects `StructViewStackAccess(state).bind(builder)` and `ThreadCursorIR`
   when the descriptor requirements ask for them
@@ -95,9 +97,9 @@ docker compose run --rm dev uv run python explorations/lab/lowered-handler-pytho
 
 The run prints:
 
-- the generated LLVM IR for the lowered `LIT` and `HALT` handlers
+- the generated LLVM IR for the lowered `LIT`, `ADD`, and `HALT` handlers
 - a `HALT`-only scenario
-- a scenario where the JIT handles both `LIT` and `HALT`
+- a scenario where the JIT handles `LIT`, `ADD`, and `HALT`
 - per-step traces with:
   - word
   - backend (`python` or `jit`)
@@ -127,7 +129,7 @@ This lab explicitly demonstrates the first promoted lowering ingredients in one 
 - generated ctypes projections
 - logical bitfield control fields
 - promoted stack access
-- lowered `LIT` and `HALT` bodies with injected surfaces
+- lowered `LIT`, `ADD`, and `HALT` bodies with injected surfaces
 
 ## Pattern / Takeaway
 
@@ -143,9 +145,13 @@ and return without forcing arithmetic lowering, thread-cursor lowering, or a ful
 native dispatch engine. It also keeps `EXIT` free to keep meaning return-stack
 behavior later, instead of smuggling a temporary halt approximation into that word.
 
-`LIT` is the next good lowered step because it proves the first real operand path:
-the op body reads one inline cell through a thread cursor and pushes it through the
-promoted stack view without owning wrapper termination or outer dispatch.
+`LIT` proves the first real operand path: the op body reads one inline cell through a
+thread cursor and pushes it through the promoted stack view without owning wrapper
+termination or outer dispatch.
+
+`ADD` is the next good lowered step because it proves the first binary stack kernel
+shape over the same promoted stack view without introducing branch or return-stack
+concerns.
 
 ## Non-Obvious Failure Modes
 

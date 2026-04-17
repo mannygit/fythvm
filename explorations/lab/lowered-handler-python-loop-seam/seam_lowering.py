@@ -98,12 +98,33 @@ def op_lit_ir(
     data_stack.push(literal, name="lit_sp")
 
 
+def op_add_ir(
+    builder: ir.IRBuilder,
+    *,
+    data_stack: BoundStackAccess,
+    err: LoweredErrorExitIR,
+) -> None:
+    """Emit ADD's local IR effect without owning wrapper termination."""
+
+    _ = err
+    pair = data_stack.pop2(result_index_name="add_result_index")
+    result = builder.add(pair.lhs, pair.rhs, name="add_result")
+    builder.store(result, data_stack.slot(pair.result_index, name="add_result_ptr"))
+    data_stack.store_sp(pair.result_index)
+
+
 LOWERED_HANDLER_SPECS: dict[int, LoweredHandlerSpec] = {
     int(dictionary.PrimitiveInstruction.LIT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.LIT),
         function_name="lowered_lit",
         op=op_lit_ir,
         note="read one inline cell after ip and push it through the lowered stack view",
+    ),
+    int(dictionary.PrimitiveInstruction.ADD): LoweredHandlerSpec(
+        handler_id=int(dictionary.PrimitiveInstruction.ADD),
+        function_name="lowered_add",
+        op=op_add_ir,
+        note="reduce the top two stack cells through the lowered stack view",
     ),
     int(dictionary.PrimitiveInstruction.HALT): LoweredHandlerSpec(
         handler_id=int(dictionary.PrimitiveInstruction.HALT),
