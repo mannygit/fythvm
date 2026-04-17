@@ -17,6 +17,19 @@ This lab keeps almost everything in Python:
 - the lowered wrapper reifies that `ctypes` layout through the promoted
   `StructHandle.from_ctypes(...)` helper in package code
 
+The lab is split by concern inside its directory:
+
+- `seam_state.py`
+  - host-visible ctypes state and promoted struct view
+- `seam_lowering.py`
+  - lowered op bodies, injected IR surfaces, and wrapper generation
+- `seam_runtime.py`
+  - Python-side dispatch, preflight, and execution
+- `seam_report.py`
+  - labeled output for scenarios
+- `run.py`
+  - the small orchestrating entrypoint
+
 Only `HALT` is lowered. The generated function takes a pointer to that shared state,
 sets one `HALT_REQUESTED` bit in the state flags, and returns normally to Python.
 
