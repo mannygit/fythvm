@@ -19,6 +19,7 @@ class Scenario:
     expected_state_flags: int
     expected_trace_backends: tuple[str, ...]
     custom_words: tuple["WordBlueprint", ...] = ()
+    lookup_then_execute_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -140,5 +141,28 @@ SCENARIOS = (
                 ),
             ),
         ),
+    ),
+    Scenario(
+        name="lookup-then-jit-docol-then-jit-exit-then-jit-halt",
+        thread=(int(dictionary.PrimitiveInstruction.HALT),),
+        expected_stack=(5,),
+        expected_final_ip=1,
+        expected_state_flags=STATE_HALT_REQUESTED,
+        expected_trace_backends=("jit", "jit", "jit", "jit", "jit", "jit"),
+        custom_words=(
+            WordBlueprint(
+                name="SUM23",
+                handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
+                thread=(
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    2,
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    3,
+                    int(dictionary.PrimitiveInstruction.ADD),
+                    int(dictionary.PrimitiveInstruction.EXIT),
+                ),
+            ),
+        ),
+        lookup_then_execute_name="SUM23",
     ),
 )

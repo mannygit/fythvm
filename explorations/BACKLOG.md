@@ -103,7 +103,9 @@ close out. Keep the backlog small and explicit.
     trampoline where continuation is expressed in CFG instead of a host-visible
     exact-`ip` side channel. The lab now also makes `W`-like dispatch facts explicit
     in SSA and carries both a trace-friendly one-step lowered entrypoint and a
-    multi-step lowered inner-loop entrypoint.
+    multi-step lowered inner-loop entrypoint. It has also started pressure-testing a
+    real outer-interpreter edge by looking up a named word through the runtime
+    dictionary and then executing that `xt` through the lowered core.
   - Lab: `explorations/lab/lowered-handler-python-loop-seam/`
 
 - `handler-requirements-python-loop`

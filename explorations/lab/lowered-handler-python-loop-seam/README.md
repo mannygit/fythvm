@@ -26,6 +26,11 @@ This lab keeps almost everything in Python:
 - the state also carries current-thread storage (`thread_cells` + `thread_length`) so a
   promoted `ThreadCursorIR` can wrap `ip` without inventing a separate thread-state
   axis
+- the lowered side now makes the current word explicit as a seam-local `W`-like
+  surface:
+  - fetched `current_xt`
+  - dictionary match / found-word index
+  - resolved handler id
 - the state still carries seam-local child-thread extents plus a small return-frame
   area so `DOCOL` can enter a child thread without pretending the dictionary itself
   carries Forth-level thread lengths
@@ -52,6 +57,14 @@ thing:
   threaded call
 - the child-thread length remains seam-local for now, because the dictionary layout
   does not treat thread extent as first-class Forth metadata
+
+And it now kicks the tires of one real outer-interpreter edge on top of that lowered
+core:
+
+- a scenario can look up a named word through the real `DictionaryRuntime`
+- that lookup produces the entry `xt`
+- the lowered core then executes that looked-up word through the same `DOCOL` / `EXIT`
+  path as the explicit threaded scenarios
 
 The lab is split by concern inside its directory:
 
@@ -92,7 +105,7 @@ surfaces, not backend policy:
 - `DOCOL` declares `needs_current_xt=True`, `needs_return_stack=True`, and
   `needs_execution_control=True`
 - the lowered op body is shaped like
-  `op_docol_ir(builder, *, current_word_thread, return_stack, control, err)`
+  `op_docol_ir(builder, *, current_word, return_stack, control, err)`
 - `0BRANCH` is the one special case that also declares
   `needs_labeled_continuation=True`
 - the shared step interprets descriptor continuation metadata after the local op body
@@ -146,6 +159,11 @@ That means the seam is intentionally narrow:
   steps until halt or refetch exhaustion
 - Python now mostly interprets changed state for visibility, not for interpreter-step
   control
+- the two lowered entrypoints are now intentional modes of the same interpreter shape:
+  - `lowered_step`
+    - trace-friendly one-step mode
+  - `lowered_run`
+    - real multi-step inner-loop mode
 
 ## How to Run
 
@@ -174,6 +192,8 @@ The run prints:
 - a scenario where the JIT handles `LIT`, `0BRANCH`, and `HALT`
 - a scenario where the JIT handles `DOCOL`, enters a child thread, restores the
   caller through lowered `EXIT`, and then halts
+- a scenario where the outer edge first looks up `SUM23` by name through the real
+  dictionary and then executes that `xt` through the lowered inner core
 - per-step traces with:
   - word
   - backend
@@ -213,6 +233,7 @@ This lab explicitly demonstrates the first promoted lowering ingredients in one 
 - generated ctypes projections
 - logical bitfield control fields
 - promoted stack access
+- an explicit seam-local `W`-like current-word surface
 - promoted thread cursor/jump access plus lowered dictionary-backed current-word
   thread resolution
 - lowered `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, `EXIT`, and `HALT` bodies with injected
@@ -226,8 +247,10 @@ If we want to start lowering very slowly, a good first seam is:
 - lower one handler at a time
 - let lowered code mutate shared state through injected surfaces
 - then move continuation into a shared lowered `NEXT`-like trampoline
-- then, once fetch/dispatch pressure is explicit enough, let the lowered side own a
-  real multi-step inner loop as well as the trace-friendly one-step entrypoint
+- then, once fetch/dispatch pressure is explicit enough, let the lowered side own both
+  a real multi-step inner loop and a trace-friendly one-step mode over the same core
+- only after that, start pressure-testing one outer-interpreter edge at a time against
+  the lowered core
 
 This is especially clean for `HALT`, because the lowered handler can set a control bit
 and return without forcing arithmetic lowering, thread-cursor lowering, or a full
@@ -309,5 +332,7 @@ small on purpose so the host/JIT boundary stays obvious.
   place?
 - At what point does the seam-local child-thread-length table stop being worth the
   host-side practicality cost?
+- When lookup-by-name starts mattering more, should the next outer-interpreter edge be
+  a real lowered `FIND`, or is `EXECUTE` the more truthful next pressure test?
 - When the inner loop becomes the primary lowered path, which part of this `NEXT`
   shape deserves promotion beyond the seam lab?

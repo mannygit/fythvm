@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
+from enum import Enum
 from typing import Callable
 
 from llvmlite import binding, ir
@@ -129,34 +130,33 @@ def lowered_run_function_name() -> str:
 
 
 @dataclass(frozen=True)
-class LoweredDispatchFactsIR:
-    """W-like dispatch facts that stay explicit across fetch and handler resolution."""
-
-    current_xt: ir.Value
-    found_word_index: ir.Value
-    dictionary_memory: ir.Value
-    resolved_handler_id: ir.Value
-
-
-@dataclass(frozen=True)
-class CurrentXtDictionaryThreadIR:
-    """Resolve the current word's thread through real dictionary memory."""
+class LoweredCurrentWordIR:
+    """Explicit W-like current-word facts for fetch, dispatch, and threaded entry."""
 
     state: LoweredLoopStateView
     dictionary_ir: dictionary.DictionaryIR
-    thread_length_table_field_name: str = "word_thread_lengths"
+    current_xt: ir.Value
+    found_word_index: ir.Value
+    resolved_handler_id: ir.Value
 
-    def ref(self) -> ThreadRefIR:
-        current_xt = self.state.current_xt.load(name="current_xt")
+    def is_custom_word(self) -> ir.Value:
+        return self.dictionary_ir.builder.icmp_signed(
+            "!=",
+            self.found_word_index,
+            I32(dictionary.NULL_INDEX),
+            name="current_word_is_custom",
+        )
+
+    def thread_ref(self, *, thread_length_table_field_name: str = "word_thread_lengths") -> ThreadRefIR:
         thread_cells = self.dictionary_ir.thread_cells_ptr_for_cfa(
-            current_xt,
+            self.current_xt,
             name="current_word_thread_cells",
         )
-        thread_length_table_field = getattr(self.state, self.thread_length_table_field_name)
+        thread_length_table_field = getattr(self.state, thread_length_table_field_name)
         thread_length_table = thread_length_table_field.load(name="word_thread_lengths")
         thread_length_ptr = self.dictionary_ir.builder.gep(
             thread_length_table,
-            [current_xt],
+            [self.current_xt],
             inbounds=True,
             name="current_word_thread_length_ptr",
         )
@@ -169,11 +169,34 @@ class CurrentXtDictionaryThreadIR:
         )
 
 
+@dataclass(frozen=True)
+class LoweredInterpreterEntrypoint:
+    mode: "LoweredInterpreterMode"
+    function_name: str
+    cfunc: ctypes._CFuncPtr  # type: ignore[attr-defined]
+    address: int
+    description: str
+
+
+class LoweredInterpreterMode(Enum):
+    STEP = "step"
+    RUN = "run"
+
+
+@dataclass(frozen=True)
+class LoweredRuntimeArtifacts:
+    module: ir.Module
+    compiled: object
+    step: LoweredInterpreterEntrypoint
+    run: LoweredInterpreterEntrypoint
+
+
 def injected_ir_resources(
     *,
     builder: ir.IRBuilder,
     state: LoweredLoopStateView,
     descriptor: dictionary.InstructionDescriptor,
+    current_word: LoweredCurrentWordIR | None = None,
     labeled_continuation: SeamLabeledContinuationIR | None = None,
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {}
@@ -185,11 +208,9 @@ def injected_ir_resources(
     if requirements.needs_thread_jump:
         kwargs["thread_jump"] = SeamThreadJumpIR(builder=builder, state=state)
     if requirements.needs_current_xt:
-        dictionary_memory = state.dictionary_memory.load(name="dictionary_memory")
-        kwargs["current_word_thread"] = CurrentXtDictionaryThreadIR(
-            state=state,
-            dictionary_ir=dictionary.DictionaryIR(builder, dictionary_memory),
-        )
+        if current_word is None:
+            raise RuntimeError(f"{descriptor.key} requested current_word without a surface")
+        kwargs["current_word"] = current_word
     if requirements.needs_return_stack:
         kwargs["return_stack"] = ReturnStackIR(builder=builder, state=state)
     if requirements.needs_execution_control:
@@ -292,7 +313,7 @@ def op_zbranch_ir(
 def op_docol_ir(
     builder: ir.IRBuilder,
     *,
-    current_word_thread: CurrentXtDictionaryThreadIR,
+    current_word: LoweredCurrentWordIR,
     return_stack: ReturnStackIR,
     control: LoweredExecutionControlIR,
     err: LoweredErrorExitIR,
@@ -301,7 +322,7 @@ def op_docol_ir(
 
     _ = builder
     _ = err
-    control.enter_thread(thread=current_word_thread.ref(), return_stack=return_stack)
+    control.enter_thread(thread=current_word.thread_ref(), return_stack=return_stack)
     return None
 
 
@@ -391,7 +412,7 @@ def emit_dispatch_facts(
     dispatch_primitive_block: ir.Block,
     dispatch_resolved_block: ir.Block,
     name_prefix: str,
-) -> LoweredDispatchFactsIR:
+) -> LoweredCurrentWordIR:
     builder.branch(fetch_block)
 
     with builder.goto_block(fetch_block):
@@ -426,10 +447,11 @@ def emit_dispatch_facts(
         resolved_handler_id.add_incoming(custom_handler_id, dispatch_custom_block)
         resolved_handler_id.add_incoming(current_xt, dispatch_primitive_block)
 
-    return LoweredDispatchFactsIR(
+    return LoweredCurrentWordIR(
+        state=state,
+        dictionary_ir=dictionary.DictionaryIR(builder, dictionary_memory),
         current_xt=current_xt,
         found_word_index=found_word_index,
-        dictionary_memory=dictionary_memory,
         resolved_handler_id=resolved_handler_id,
     )
 
@@ -517,7 +539,7 @@ def define_lowered_interpreter(
     refetch_block = function.append_basic_block("refetch")
     halt_block = function.append_basic_block("halt")
     return_block = function.append_basic_block("return")
-    dispatch_facts = emit_dispatch_facts(
+    current_word = emit_dispatch_facts(
         function=function,
         builder=builder,
         state=state,
@@ -530,7 +552,7 @@ def define_lowered_interpreter(
 
     builder.position_at_end(dispatch_resolved_block)
     default_block = function.append_basic_block("unsupported")
-    dispatcher = builder.switch(dispatch_facts.resolved_handler_id, default_block)
+    dispatcher = builder.switch(current_word.resolved_handler_id, default_block)
     for spec in LOWERED_HANDLER_SPECS.values():
         descriptor = dictionary.instruction_descriptor_for_handler_id(spec.handler_id)
         if descriptor is None:
@@ -555,6 +577,7 @@ def define_lowered_interpreter(
                 builder=builder,
                 state=state,
                 descriptor=descriptor,
+                current_word=current_word,
                 labeled_continuation=labeled_continuation,
             )
             labeled_continuation_value = spec.op(builder, **kwargs)
@@ -621,14 +644,7 @@ def define_lowered_run(module: ir.Module) -> None:
 def build_lowered_runtime(
     *,
     speed_level: int | None = None,
-) -> tuple[
-    ir.Module,
-    object,
-    ctypes._CFuncPtr,  # type: ignore[attr-defined]
-    int,
-    ctypes._CFuncPtr,  # type: ignore[attr-defined]
-    int,
-]:
+) -> LoweredRuntimeArtifacts:
     target = binding.Target.from_default_triple()
     target_machine = target.create_target_machine()
     module = ir.Module(name="lowered_handler_seam")
@@ -648,4 +664,21 @@ def build_lowered_runtime(
         None,
         ctypes.POINTER(LoweredLoopState),
     )(lowered_run_address)
-    return module, compiled, lowered_step, lowered_step_address, lowered_run, lowered_run_address
+    return LoweredRuntimeArtifacts(
+        module=module,
+        compiled=compiled,
+        step=LoweredInterpreterEntrypoint(
+            mode=LoweredInterpreterMode.STEP,
+            function_name=lowered_step_function_name(),
+            cfunc=lowered_step,
+            address=lowered_step_address,
+            description="trace-friendly one-step lowered NEXT entrypoint",
+        ),
+        run=LoweredInterpreterEntrypoint(
+            mode=LoweredInterpreterMode.RUN,
+            function_name=lowered_run_function_name(),
+            cfunc=lowered_run,
+            address=lowered_run_address,
+            description="multi-step lowered inner-loop entrypoint",
+        ),
+    )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from seam_lowering import LoweredInterpreterEntrypoint
 from seam_model import Scenario, ScenarioResult
 from seam_runtime import decompile_thread
 
@@ -8,8 +9,8 @@ def print_scenario(
     scenario: Scenario,
     result: ScenarioResult,
     *,
-    lowered_step_address: int,
-    lowered_run_address: int,
+    lowered_step: LoweredInterpreterEntrypoint,
+    lowered_run: LoweredInterpreterEntrypoint,
 ) -> None:
     print(f"== {scenario.name.upper()} ==")
     print("thread:")
@@ -19,8 +20,16 @@ def print_scenario(
         print(f"word {word.name}:")
         for line in decompile_thread(word.thread, custom_words=result.resolved_words):
             print(f"  {line}")
-    print(f"lowered NEXT-step address: 0x{lowered_step_address:x}")
-    print(f"lowered NEXT-run address:  0x{lowered_run_address:x}")
+    if scenario.lookup_then_execute_name is not None:
+        print(f"outer edge: lookup {scenario.lookup_then_execute_name!r} through DictionaryRuntime, then execute lowered xt")
+    print(
+        f"lowered NEXT-step ({lowered_step.mode.value}):"
+        f" {lowered_step.function_name} @ 0x{lowered_step.address:x}"
+    )
+    print(
+        f"lowered NEXT-run  ({lowered_run.mode.value}):"
+        f" {lowered_run.function_name} @ 0x{lowered_run.address:x}"
+    )
     print(
         "expected:"
         f" stack={list(scenario.expected_stack)}"

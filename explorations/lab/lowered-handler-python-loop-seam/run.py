@@ -43,26 +43,10 @@ def assert_trace_and_run_match(traced: ScenarioResult, lowered_run: ScenarioResu
 
 def main() -> None:
     configure_llvm()
-    (
-        _raw_module,
-        raw_compiled,
-        raw_lowered_step,
-        _raw_lowered_step_address,
-        raw_lowered_run,
-        _raw_lowered_run_address,
-    ) = build_lowered_runtime()
-    (
-        _opt_module,
-        opt_compiled,
-        opt_lowered_step,
-        opt_lowered_step_address,
-        opt_lowered_run,
-        opt_lowered_run_address,
-    ) = build_lowered_runtime(
-        speed_level=3
-    )
-    raw_ir_artifact_path = write_ir_artifact(RAW_IR_ARTIFACT_PATH, raw_compiled.llvm_ir)
-    opt_ir_artifact_path = write_ir_artifact(OPT_O3_IR_ARTIFACT_PATH, opt_compiled.llvm_ir)
+    raw_runtime = build_lowered_runtime()
+    opt_runtime = build_lowered_runtime(speed_level=3)
+    raw_ir_artifact_path = write_ir_artifact(RAW_IR_ARTIFACT_PATH, raw_runtime.compiled.llvm_ir)
+    opt_ir_artifact_path = write_ir_artifact(OPT_O3_IR_ARTIFACT_PATH, opt_runtime.compiled.llvm_ir)
 
     print("== Question ==")
     print("What is the smallest useful seam between a Python dispatch loop and a gradually lowered handler set?")
@@ -73,20 +57,20 @@ def main() -> None:
     print()
     print("== Optimization Comparison ==")
     print(
-        f"raw IR lines={line_count(raw_compiled.llvm_ir)} "
-        f"O3 IR lines={line_count(opt_compiled.llvm_ir)}"
+        f"raw IR lines={line_count(raw_runtime.compiled.llvm_ir)} "
+        f"O3 IR lines={line_count(opt_runtime.compiled.llvm_ir)}"
     )
     print(
-        f"raw asm lines={line_count(raw_compiled.assembly)} "
-        f"O3 asm lines={line_count(opt_compiled.assembly)}"
+        f"raw asm lines={line_count(raw_runtime.compiled.assembly)} "
+        f"O3 asm lines={line_count(opt_runtime.compiled.assembly)}"
     )
     print(
-        f"O3 entrypoints: step=0x{opt_lowered_step_address:x} "
-        f"run=0x{opt_lowered_run_address:x}"
+        f"O3 entrypoints: step=0x{opt_runtime.step.address:x} "
+        f"run=0x{opt_runtime.run.address:x}"
     )
     print()
     print("== O3 IR ==")
-    print(opt_compiled.llvm_ir.rstrip())
+    print(opt_runtime.compiled.llvm_ir.rstrip())
     print()
     print("== Takeaway ==")
     print(
@@ -96,10 +80,10 @@ def main() -> None:
     print()
 
     for scenario in SCENARIOS:
-        raw_step_result = execute_scenario(scenario, raw_lowered_step)
-        opt_step_result = execute_scenario(scenario, opt_lowered_step)
-        raw_run_result = execute_scenario_to_completion(scenario, raw_lowered_run)
-        opt_run_result = execute_scenario_to_completion(scenario, opt_lowered_run)
+        raw_step_result = execute_scenario(scenario, raw_runtime.step.cfunc)
+        opt_step_result = execute_scenario(scenario, opt_runtime.step.cfunc)
+        raw_run_result = execute_scenario_to_completion(scenario, raw_runtime.run.cfunc)
+        opt_run_result = execute_scenario_to_completion(scenario, opt_runtime.run.cfunc)
         assert_result_matches(scenario, raw_step_result)
         assert_result_matches(scenario, opt_step_result)
         assert_result_matches(scenario, raw_run_result, require_trace=False)
@@ -111,8 +95,8 @@ def main() -> None:
         print_scenario(
             scenario,
             opt_step_result,
-            lowered_step_address=opt_lowered_step_address,
-            lowered_run_address=opt_lowered_run_address,
+            lowered_step=opt_runtime.step,
+            lowered_run=opt_runtime.run,
         )
 
 

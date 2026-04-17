@@ -88,6 +88,11 @@ def materialize_dictionary_words(
         )
 
     resolved_entry_thread = resolve_thread_tokens(scenario.thread, words_by_name=words_by_name)
+    if scenario.lookup_then_execute_name is not None:
+        found_word = runtime.find_word(scenario.lookup_then_execute_name)
+        if found_word is None:
+            raise RuntimeError(f"lookup failed for {scenario.lookup_then_execute_name!r}")
+        resolved_entry_thread = (found_word.cfa_index, *resolved_entry_thread)
     return runtime, tuple(resolved_words), resolved_entry_thread
 
 
@@ -228,7 +233,7 @@ def prepare_scenario_execution(scenario: Scenario) -> PreparedScenarioExecution:
     )
 
 
-def execute_scenario(
+def execute_scenario_stepwise(
     scenario: Scenario,
     lowered_step: ctypes._CFuncPtr,  # type: ignore[attr-defined]
 ) -> ScenarioResult:
@@ -284,7 +289,7 @@ def execute_scenario(
     )
 
 
-def execute_scenario_to_completion(
+def execute_scenario_runmode(
     scenario: Scenario,
     lowered_run: ctypes._CFuncPtr,  # type: ignore[attr-defined]
 ) -> ScenarioResult:
@@ -298,6 +303,20 @@ def execute_scenario_to_completion(
         state_flags=state_flags_value(prepared.state),
         trace=(),
     )
+
+
+def execute_scenario(
+    scenario: Scenario,
+    lowered_step: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+) -> ScenarioResult:
+    return execute_scenario_stepwise(scenario, lowered_step)
+
+
+def execute_scenario_to_completion(
+    scenario: Scenario,
+    lowered_run: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+) -> ScenarioResult:
+    return execute_scenario_runmode(scenario, lowered_run)
 
 
 def assert_result_matches(
