@@ -90,14 +90,15 @@ close out. Keep the backlog small and explicit.
 
 - `handler-requirements-python-loop`
   - Title: HandlerRequirements-driven Python loop
-  - Goal: Show a tiny Python interpreter loop wiring package metadata into `LIT`,
-    `+`, and `EXIT` without pretending the final runtime or lowering path is settled.
+  - Goal: Show a tiny Python interpreter loop wiring package metadata into
+    inline-thread words, arithmetic kernels, and `DOCOL` without pretending the
+    final runtime or lowering path is settled.
   - Why it matters: The repo now has family metadata, associated-data-source
     metadata, and `HandlerRequirements`; this lab makes that trio executable and easy
     to inspect.
   - Takeaway: Treat family as semantic grouping, associated-data source as the
-    runtime data-location clue, and `HandlerRequirements` as the concrete injection
-    and preflight contract for local handler bodies.
+    runtime data-location clue, and `HandlerRequirements` as the concrete injection,
+    cursor/jump, and preflight contract for local handler bodies.
   - Lab: `explorations/lab/handler-requirements-python-loop/`
 
 - `python-shared-stack-kernels`

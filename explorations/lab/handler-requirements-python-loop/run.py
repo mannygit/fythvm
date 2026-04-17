@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, TypeAlias
 
 from fythvm import dictionary
 
@@ -17,7 +17,7 @@ class Scenario:
     text: str
     thread: tuple[int, ...]
     expected_decompile: tuple[str, ...]
-    expected_stack: tuple[int, ...]
+    expected_stack: tuple[StackValue, ...]
     expected_halted: bool
     expected_final_ip: int
     expected_error_code: str | None
@@ -44,7 +44,7 @@ class TraceRow:
 @dataclass(frozen=True)
 class ScenarioResult:
     decompiled_thread: tuple[str, ...]
-    final_stack: tuple[int, ...]
+    final_stack: tuple[StackValue, ...]
     halted: bool
     final_ip: int
     error_code: str | None
@@ -67,6 +67,16 @@ class ReturnFrame:
     return_ip: int
 
 
+@dataclass(frozen=True)
+class InlineStringRef:
+    """Pointer-like inline string view without exposing raw thread offsets."""
+
+    payload: bytes
+
+
+StackValue: TypeAlias = int | InlineStringRef
+
+
 @dataclass
 class LoopState:
     """Minimal execution state for the proof-of-concept loop."""
@@ -76,7 +86,7 @@ class LoopState:
     stack_limit: int = 8
     ip: int = 0
     current_xt: int | None = None
-    data_stack: list[int] = field(default_factory=list)
+    data_stack: list[StackValue] = field(default_factory=list)
     return_stack: list[ReturnFrame] = field(default_factory=list)
     halted: bool = False
 
@@ -94,38 +104,63 @@ def error_exit(code: str, detail: str) -> None:
     raise ExecutionFault(code, detail)
 
 
-def stack_depth(data_stack: list[int]) -> int:
+def stack_depth(data_stack: list[StackValue]) -> int:
     """Return the current logical stack depth."""
 
     return len(data_stack)
 
 
-def stack_push(data_stack: list[int], value: int) -> None:
+def stack_push(data_stack: list[StackValue], value: StackValue) -> None:
     """Push one value through the current stack abstraction."""
 
     data_stack.append(value)
 
 
-def stack_pop(data_stack: list[int]) -> int:
+def stack_pop(data_stack: list[StackValue]) -> StackValue:
     """Pop one value through the current stack abstraction."""
 
     return data_stack.pop()
 
 
-def stack_peek(data_stack: list[int], depth: int = 0) -> int:
+def stack_peek(data_stack: list[StackValue], depth: int = 0) -> StackValue:
     """Read one value from the logical top window without consuming it."""
 
     return data_stack[-(depth + 1)]
 
 
-def binary_reduce(data_stack: list[int], fn: Callable[[int, int], int]) -> int:
+def binary_reduce(data_stack: list[StackValue], fn: Callable[[int, int], int]) -> int:
     """Local stack-shape kernel: reduce two inputs into one output."""
 
     rhs = stack_pop(data_stack)
     lhs = stack_pop(data_stack)
+    if not isinstance(lhs, int) or not isinstance(rhs, int):
+        raise TypeError("binary_reduce expects integer stack cells")
     result = fn(lhs, rhs)
     stack_push(data_stack, result)
     return result
+
+
+def pack_inline_bytes(payload: bytes) -> tuple[int, ...]:
+    """Pack a byte payload into 32-bit little-endian thread cells."""
+
+    if not payload:
+        return ()
+
+    cells: list[int] = []
+    for start in range(0, len(payload), 4):
+        chunk = payload[start : start + 4]
+        padded = chunk.ljust(4, b"\x00")
+        cells.append(int.from_bytes(padded, byteorder="little", signed=False))
+    return tuple(cells)
+
+
+def unpack_inline_bytes(*, thread: tuple[int, ...], start: int, length: int) -> bytes:
+    """Decode one counted inline byte payload from packed 32-bit thread cells."""
+
+    cell_count = litstring_payload_cells(length)
+    payload_cells = thread[start : start + cell_count]
+    raw = b"".join(int(cell).to_bytes(4, byteorder="little", signed=False) for cell in payload_cells)
+    return raw[:length]
 
 
 @dataclass
@@ -144,6 +179,37 @@ class ThreadCursor:
         literal = int(self.state.current_thread[operand_ip])
         self.state.ip = operand_ip
         return literal
+
+    def read_counted_bytes(self) -> bytes:
+        """Read one Forth-style counted inline string payload."""
+
+        length_ip = self.state.ip + 1
+        if length_ip >= len(self.state.current_thread):
+            error_exit(
+                "inline-operand-underflow",
+                f"word at ip={self.state.ip} needs one inline length cell",
+            )
+
+        length = int(self.state.current_thread[length_ip])
+        payload_start = length_ip + 1
+        payload_cells = litstring_payload_cells(length)
+        payload_end = payload_start + payload_cells
+        if payload_end > len(self.state.current_thread):
+            error_exit(
+                "inline-operand-underflow",
+                (
+                    f"word at ip={self.state.ip} needs {payload_cells} payload cells "
+                    f"for counted length {length}"
+                ),
+            )
+
+        payload = unpack_inline_bytes(
+            thread=self.state.current_thread,
+            start=payload_start,
+            length=length,
+        )
+        self.state.ip = payload_end - 1
+        return payload
 
 
 @dataclass
@@ -211,14 +277,33 @@ class CurrentWordThread:
         return word.thread
 
 
-def handle_lit(*, data_stack: list[int], thread_cursor: ThreadCursor, err: Callable[[str, str], None]) -> str:
+def handle_lit(
+    *,
+    data_stack: list[StackValue],
+    thread_cursor: ThreadCursor,
+    err: Callable[[str, str], None],
+) -> str:
     _ = err
     literal = thread_cursor.read_inline_cell()
     stack_push(data_stack, literal)
     return f"push literal {literal}"
 
 
-def handle_add(*, data_stack: list[int], err: Callable[[str, str], None]) -> str:
+def handle_litstring(
+    *,
+    data_stack: list[StackValue],
+    thread_cursor: ThreadCursor,
+    err: Callable[[str, str], None],
+) -> str:
+    _ = err
+    payload = thread_cursor.read_counted_bytes()
+    string_ref = InlineStringRef(payload=payload)
+    stack_push(data_stack, string_ref)
+    stack_push(data_stack, len(payload))
+    return f"push counted bytes {payload!r} len {len(payload)}"
+
+
+def handle_add(*, data_stack: list[StackValue], err: Callable[[str, str], None]) -> str:
     if stack_depth(data_stack) < 2:
         err("stack-underflow", "ADD needs two cells")
     lhs = stack_peek(data_stack, depth=1)
@@ -270,6 +355,7 @@ def handle_exit(*, control: ExecutionControl, err: Callable[[str, str], None]) -
 
 HANDLERS: dict[int, HandlerFn] = {
     int(dictionary.PrimitiveInstruction.LIT): handle_lit,
+    int(dictionary.PrimitiveInstruction.LITSTRING): handle_litstring,
     int(dictionary.PrimitiveInstruction.ADD): handle_add,
     int(dictionary.PrimitiveInstruction.BRANCH): handle_branch,
     int(dictionary.PrimitiveInstruction.ZBRANCH): handle_zero_branch,
@@ -323,6 +409,26 @@ SCENARIOS = (
         expected_final_ip=2,
         expected_error_code="stack-underflow",
         expected_trace_words=("LIT",),
+    ),
+    Scenario(
+        name="litstring",
+        text='LITSTRING "hi" EXIT',
+        thread=(
+            int(dictionary.PrimitiveInstruction.LITSTRING),
+            2,
+            *pack_inline_bytes(b"hi"),
+            int(dictionary.PrimitiveInstruction.EXIT),
+        ),
+        expected_decompile=(
+            "entry:",
+            "  0: LITSTRING b'hi'",
+            "  3: EXIT",
+        ),
+        expected_stack=(InlineStringRef(payload=b"hi"), 2),
+        expected_halted=True,
+        expected_final_ip=3,
+        expected_error_code=None,
+        expected_trace_words=("LITSTRING", "EXIT"),
     ),
     Scenario(
         name="branch-skip",
@@ -482,8 +588,11 @@ def decompile_linear_thread(
             length = int(thread[length_ip])
             payload_start = length_ip + 1
             payload_end = payload_start + litstring_payload_cells(length)
-            payload = tuple(int(cell) for cell in thread[payload_start:payload_end])
-            lines.append(f"  {ip}: LITSTRING len={length} cells={payload}")
+            if payload_end > len(thread):
+                lines.append(f"  {ip}: LITSTRING len={length} <missing-payload>")
+                break
+            payload = unpack_inline_bytes(thread=thread, start=payload_start, length=length)
+            lines.append(f"  {ip}: LITSTRING {payload!r}")
             ip = payload_end
             continue
 

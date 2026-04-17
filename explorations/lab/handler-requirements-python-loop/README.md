@@ -3,9 +3,9 @@
 ## Question
 
 Can the current package metadata drive a tiny Python interpreter loop strongly enough
-to make the `LIT`, `+`, and `EXIT` execution shape visible, while also supporting a
-small usable decompiler, without committing to a final runtime ABI or lowering
-pipeline?
+to make the `LIT`, `LITSTRING`, `+`, and `EXIT` execution shape visible, while also
+supporting a small usable decompiler, without committing to a final runtime ABI or
+lowering pipeline?
 
 ## Setup
 
@@ -17,6 +17,7 @@ This lab stays deliberately small:
 - a tiny scenario-local word registry so named threaded words can be introduced
 - handlers for:
   - `LIT`
+  - `LITSTRING`
   - `+`
   - `BRANCH`
   - `0BRANCH`
@@ -65,6 +66,7 @@ docker compose run --rm dev uv run python explorations/lab/handler-requirements-
 The output prints two scenarios:
 
 - one successful thread: `LIT 2 LIT 3 + EXIT`
+- one counted inline string: `LITSTRING "hi" EXIT`
 - one failing thread: `LIT 2 + EXIT`
 - one unconditional branch skip: `LIT 7 BRANCH 2 LIT 999 EXIT`
 - one conditional branch skip: `LIT 0 0BRANCH 2 LIT 999 EXIT`
@@ -97,6 +99,8 @@ That makes the current metadata story visible in one place:
 
 - `LIT` is `primitive-inline-operand` and gets `data_stack`, `thread_cursor`, and
   `err`
+- `LITSTRING` is `primitive-inline-operand` and uses the same cursor abstraction, but
+  now consumes a variable-width counted payload
 - `+` is `primitive-empty` and gets `data_stack` and `err`
 - `BRANCH` is `primitive-inline-operand` and gets `thread_cursor`, `thread_jump`,
   and `err`
@@ -162,6 +166,11 @@ thread-local cursor capability. `BRANCH` and `0BRANCH` want both a cursor and a 
 capability. That is a better fit than pretending every inline-thread word just wants
 the same raw `ip` integer.
 
+`LITSTRING` adds the next pressure point: cursor access is not only about one inline
+cell. Some words consume a variable-width counted payload, and the handler surface is
+cleaner if that remains a cursor operation instead of open-coded `ip` arithmetic in
+the handler.
+
 It is also easy to overread the result and assume this means the final package runtime
 should just become a Python dispatch loop. That is not the point. The point is to
 practice the execution shape in a visibility-friendly form so the later lowering work
@@ -174,7 +183,8 @@ Use this pattern when:
 - you want to pressure-test the metadata model before building real lowering
 - you want to inspect injected resources and preflight checks in a human-readable way
 - you need a tiny execution-shaped artifact to discuss `LIT` versus `+` versus
-  `EXIT`, or primitive inline-thread words versus `DOCOL`
+  `EXIT`, fixed-width versus variable-width inline-thread words, or primitive
+  inline-thread words versus `DOCOL`
 - you want to see cursor-style and jump-style thread capabilities in the same loop
 - you want a safe place to iterate on handler surfaces before committing to llvmlite
 
@@ -196,9 +206,9 @@ Those need separate labs.
 
 - Should `associated_data_source` become first-class enough that the injection layer
   never has to inspect family metadata?
-- What is the smallest useful next extension after `DOCOL`:
-  - `LITSTRING`
+- What is the smallest useful next extension after `LITSTRING`:
   - compile-time control words that emit `BRANCH` / `0BRANCH`
+  - richer pointer-like stack values for inline strings and other thread payloads
 - Should `associated_data_source` remain purely semantic, or should some injections
   continue to be inferred from it alongside explicit requirement flags?
 - At what point does this Python shape want a second variant that mirrors future
