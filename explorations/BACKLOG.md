@@ -101,7 +101,9 @@ close out. Keep the backlog small and explicit.
     shared state. Once fetch, dispatch, stack, thread, dictionary, and return-stack
     surfaces all hold up, the seam can converge toward a shared lowered `NEXT`-like
     trampoline where continuation is expressed in CFG instead of a host-visible
-    exact-`ip` side channel.
+    exact-`ip` side channel. The lab now also makes `W`-like dispatch facts explicit
+    in SSA and carries both a trace-friendly one-step lowered entrypoint and a
+    multi-step lowered inner-loop entrypoint.
   - Lab: `explorations/lab/lowered-handler-python-loop-seam/`
 
 - `handler-requirements-python-loop`

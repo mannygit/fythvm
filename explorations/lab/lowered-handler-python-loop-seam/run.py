@@ -9,7 +9,11 @@ from fythvm.codegen.llvm import configure_llvm
 from seam_lowering import build_lowered_runtime
 from seam_model import SCENARIOS, ScenarioResult
 from seam_report import print_scenario
-from seam_runtime import assert_result_matches, execute_scenario
+from seam_runtime import (
+    assert_result_matches,
+    execute_scenario,
+    execute_scenario_to_completion,
+)
 
 RAW_IR_ARTIFACT_PATH = Path(__file__).resolve().parents[3] / "lowered-handler-python-loop-seam.ll"
 OPT_O3_IR_ARTIFACT_PATH = Path(__file__).resolve().parents[3] / "lowered-handler-python-loop-seam.O3.ll"
@@ -31,10 +35,30 @@ def assert_results_match(raw: ScenarioResult, optimized: ScenarioResult) -> None
     assert raw.trace == optimized.trace
 
 
+def assert_trace_and_run_match(traced: ScenarioResult, lowered_run: ScenarioResult) -> None:
+    assert traced.final_stack == lowered_run.final_stack
+    assert traced.final_ip == lowered_run.final_ip
+    assert traced.state_flags == lowered_run.state_flags
+
+
 def main() -> None:
     configure_llvm()
-    _raw_module, raw_compiled, raw_lowered_step, _raw_lowered_step_address = build_lowered_runtime()
-    _opt_module, opt_compiled, opt_lowered_step, opt_lowered_step_address = build_lowered_runtime(
+    (
+        _raw_module,
+        raw_compiled,
+        raw_lowered_step,
+        _raw_lowered_step_address,
+        raw_lowered_run,
+        _raw_lowered_run_address,
+    ) = build_lowered_runtime()
+    (
+        _opt_module,
+        opt_compiled,
+        opt_lowered_step,
+        opt_lowered_step_address,
+        opt_lowered_run,
+        opt_lowered_run_address,
+    ) = build_lowered_runtime(
         speed_level=3
     )
     raw_ir_artifact_path = write_ir_artifact(RAW_IR_ARTIFACT_PATH, raw_compiled.llvm_ir)
@@ -56,6 +80,10 @@ def main() -> None:
         f"raw asm lines={line_count(raw_compiled.assembly)} "
         f"O3 asm lines={line_count(opt_compiled.assembly)}"
     )
+    print(
+        f"O3 entrypoints: step=0x{opt_lowered_step_address:x} "
+        f"run=0x{opt_lowered_run_address:x}"
+    )
     print()
     print("== O3 IR ==")
     print(opt_compiled.llvm_ir.rstrip())
@@ -68,12 +96,24 @@ def main() -> None:
     print()
 
     for scenario in SCENARIOS:
-        raw_result = execute_scenario(scenario, raw_lowered_step)
-        opt_result = execute_scenario(scenario, opt_lowered_step)
-        assert_result_matches(scenario, raw_result)
-        assert_result_matches(scenario, opt_result)
-        assert_results_match(raw_result, opt_result)
-        print_scenario(scenario, opt_result, lowered_step_address=opt_lowered_step_address)
+        raw_step_result = execute_scenario(scenario, raw_lowered_step)
+        opt_step_result = execute_scenario(scenario, opt_lowered_step)
+        raw_run_result = execute_scenario_to_completion(scenario, raw_lowered_run)
+        opt_run_result = execute_scenario_to_completion(scenario, opt_lowered_run)
+        assert_result_matches(scenario, raw_step_result)
+        assert_result_matches(scenario, opt_step_result)
+        assert_result_matches(scenario, raw_run_result, require_trace=False)
+        assert_result_matches(scenario, opt_run_result, require_trace=False)
+        assert_results_match(raw_step_result, opt_step_result)
+        assert_trace_and_run_match(raw_step_result, raw_run_result)
+        assert_trace_and_run_match(opt_step_result, opt_run_result)
+        assert_trace_and_run_match(raw_step_result, opt_run_result)
+        print_scenario(
+            scenario,
+            opt_step_result,
+            lowered_step_address=opt_lowered_step_address,
+            lowered_run_address=opt_lowered_run_address,
+        )
 
 
 if __name__ == "__main__":

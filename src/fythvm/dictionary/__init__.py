@@ -20,6 +20,7 @@ from .compiler_words import (
 )
 from .instructions import (
     AssociatedDataSource,
+    ContinuationKind,
     DEFAULT_INSTRUCTIONS,
     HandlerRequirements,
     InstructionCategory,
@@ -52,6 +53,7 @@ __all__ = [
     "COLON_THREAD_FAMILY",
     "CompilerWordDescriptor",
     "CompilerWordRegistry",
+    "ContinuationKind",
     "DEFAULT_INSTRUCTION_FAMILIES",
     "DEFAULT_COMPILER_WORDS",
     "DEFAULT_INSTRUCTIONS",

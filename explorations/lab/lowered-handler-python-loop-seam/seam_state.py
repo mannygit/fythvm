@@ -20,7 +20,7 @@ class LoweredLoopState(ctypes.Structure):
         ("current_xt", ctypes.c_int32),
         ("thread_cells", ctypes.POINTER(ctypes.c_int32)),
         ("thread_length", ctypes.c_int32),
-        ("current_word_thread_length", ctypes.c_int32),
+        ("word_thread_lengths", ctypes.POINTER(ctypes.c_int32)),
         ("stack", ctypes.c_int32 * STACK_CAPACITY),
         ("sp", ctypes.c_int32),
         ("return_thread_cells", ctypes.POINTER(ctypes.c_int32) * RETURN_STACK_CAPACITY),

@@ -44,6 +44,15 @@ class AssociatedDataSource(Enum):
     INLINE_THREAD = "inline_thread"
 
 
+class ContinuationKind(Enum):
+    """How the enclosing interpreter step should continue after a handler runs."""
+
+    FALLTHROUGH = "fallthrough"
+    EXACT_IP = "exact_ip"
+    HALT = "halt"
+    LABELED = "labeled"
+
+
 @dataclass(frozen=True, slots=True)
 class HandlerRequirements:
     """Declarative lowering requirements for a concrete handler."""
@@ -64,6 +73,7 @@ class HandlerRequirements:
     needs_here: bool = False
     needs_thread_emitter: bool = False
     needs_patch_stack: bool = False
+    needs_labeled_continuation: bool = False
     # Shared lowering-shape hint. This is metadata only for now, not a callable or
     # runtime ABI choice. Names are intended to track the stack-kernel exploration
     # vocabulary where practical.
@@ -175,6 +185,8 @@ class InstructionDescriptor:
     category: InstructionCategory
     associated_data_source: AssociatedDataSource
     requirements: HandlerRequirements
+    continuation: ContinuationKind
+    continuation_labels: tuple[tuple[str, ContinuationKind], ...]
     description: str
 
 
@@ -206,6 +218,8 @@ def _descriptor(
     family: WordFamily = PRIMITIVE_EMPTY_FAMILY,
     associated_data_source: AssociatedDataSource = AssociatedDataSource.NONE,
     requirements: HandlerRequirements | None = None,
+    continuation: ContinuationKind = ContinuationKind.FALLTHROUGH,
+    continuation_labels: tuple[tuple[str, ContinuationKind], ...] = (),
 ) -> InstructionDescriptor:
     return InstructionDescriptor(
         handler_id=int(handler_id),
@@ -214,6 +228,8 @@ def _descriptor(
         category=category,
         associated_data_source=associated_data_source,
         requirements=HandlerRequirements() if requirements is None else requirements,
+        continuation=continuation,
+        continuation_labels=continuation_labels,
         description=description,
     )
 
@@ -236,6 +252,7 @@ def _req(
     needs_here: bool = False,
     needs_thread_emitter: bool = False,
     needs_patch_stack: bool = False,
+    needs_labeled_continuation: bool = False,
     kernel: str | None = None,
 ) -> HandlerRequirements:
     return HandlerRequirements(
@@ -255,6 +272,7 @@ def _req(
         needs_here=needs_here,
         needs_thread_emitter=needs_thread_emitter,
         needs_patch_stack=needs_patch_stack,
+        needs_labeled_continuation=needs_labeled_continuation,
         kernel=kernel,
     )
 
@@ -323,7 +341,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
         int(PrimitiveInstruction.OR): _descriptor(PrimitiveInstruction.OR, "OR", InstructionCategory.COMPARISON_BITWISE, "Bitwise or on top two stack items.", requirements=_stack_req(2, 1, "binary_reduce")),
         int(PrimitiveInstruction.XOR): _descriptor(PrimitiveInstruction.XOR, "XOR", InstructionCategory.COMPARISON_BITWISE, "Bitwise xor on top two stack items.", requirements=_stack_req(2, 1, "binary_reduce")),
         int(PrimitiveInstruction.INVERT): _descriptor(PrimitiveInstruction.INVERT, "INVERT", InstructionCategory.COMPARISON_BITWISE, "Bitwise invert top of stack.", requirements=_stack_req(1, 1, "unary_transform")),
-        int(PrimitiveInstruction.EXIT): _descriptor(PrimitiveInstruction.EXIT, "EXIT", InstructionCategory.DICTIONARY_COMPILER, "Return from the current threaded word.", requirements=_return_req(min_return_stack_in=1, needs_execution_control=True, kernel="exit")),
+        int(PrimitiveInstruction.EXIT): _descriptor(PrimitiveInstruction.EXIT, "EXIT", InstructionCategory.DICTIONARY_COMPILER, "Return from the current threaded word.", requirements=_return_req(min_return_stack_in=1, needs_execution_control=True, kernel="exit"), continuation=ContinuationKind.EXACT_IP),
         int(PrimitiveInstruction.STORE): _descriptor(PrimitiveInstruction.STORE, "!", InstructionCategory.MEMORY, "Store a cell through an address.", requirements=_stack_req(2, 0, "store_cell")),
         int(PrimitiveInstruction.FETCH): _descriptor(PrimitiveInstruction.FETCH, "@", InstructionCategory.MEMORY, "Fetch a cell through an address.", requirements=_stack_req(1, 1, "fetch_cell")),
         int(PrimitiveInstruction.ADDSTORE): _descriptor(PrimitiveInstruction.ADDSTORE, "+!", InstructionCategory.MEMORY, "Add to a cell through an address.", requirements=_stack_req(2, 0, "update_cell")),
@@ -372,6 +390,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
                 needs_thread_cursor=True,
                 kernel="inline_literal",
             ),
+            continuation=ContinuationKind.FALLTHROUGH,
         ),
         int(PrimitiveInstruction.BRANCH): _descriptor(
             PrimitiveInstruction.BRANCH,
@@ -385,6 +404,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
                 needs_thread_jump=True,
                 kernel="inline_branch",
             ),
+            continuation=ContinuationKind.EXACT_IP,
         ),
         int(PrimitiveInstruction.ZBRANCH): _descriptor(
             PrimitiveInstruction.ZBRANCH,
@@ -397,7 +417,13 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
                 min_data_stack_in=1,
                 needs_thread_cursor=True,
                 needs_thread_jump=True,
+                needs_labeled_continuation=True,
                 kernel="inline_zero_branch",
+            ),
+            continuation=ContinuationKind.LABELED,
+            continuation_labels=(
+                ("branch_taken", ContinuationKind.EXACT_IP),
+                ("branch_fallthrough", ContinuationKind.FALLTHROUGH),
             ),
         ),
         int(PrimitiveInstruction.LITSTRING): _descriptor(
@@ -412,6 +438,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
                 needs_thread_cursor=True,
                 kernel="inline_string_literal",
             ),
+            continuation=ContinuationKind.FALLTHROUGH,
         ),
         int(PrimitiveInstruction.DOCOL): _descriptor(
             PrimitiveInstruction.DOCOL,
@@ -427,6 +454,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
                 needs_execution_control=True,
                 kernel="enter_thread",
             ),
+            continuation=ContinuationKind.EXACT_IP,
         ),
         int(PrimitiveInstruction.HALT): _descriptor(
             PrimitiveInstruction.HALT,
@@ -434,6 +462,7 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
             InstructionCategory.DICTIONARY_COMPILER,
             "Request that the current execution context halt.",
             requirements=_req(needs_execution_control=True, kernel="halt"),
+            continuation=ContinuationKind.HALT,
         ),
     }
 )

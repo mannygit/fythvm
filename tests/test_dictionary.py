@@ -154,6 +154,7 @@ def test_instruction_registry_exposes_halt_metadata() -> None:
     assert descriptor.requirements.needs_thread_cursor is False
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "halt"
+    assert descriptor.continuation is dictionary.ContinuationKind.HALT
 
 
 def test_instruction_registry_exposes_compiler_and_input_requirements() -> None:
@@ -188,6 +189,7 @@ def test_instruction_registry_exposes_lit_inline_operand_metadata() -> None:
     assert descriptor.requirements.needs_thread_jump is False
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "inline_literal"
+    assert descriptor.continuation is dictionary.ContinuationKind.FALLTHROUGH
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.LIT)) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
 
 
@@ -202,6 +204,7 @@ def test_instruction_registry_exposes_branch_inline_operand_metadata() -> None:
     assert descriptor.requirements.needs_thread_jump is True
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "inline_branch"
+    assert descriptor.continuation is dictionary.ContinuationKind.EXACT_IP
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.BRANCH)) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
 
 
@@ -215,8 +218,14 @@ def test_instruction_registry_exposes_zero_branch_inline_operand_metadata() -> N
     assert descriptor.requirements.min_data_stack_in == 1
     assert descriptor.requirements.needs_thread_cursor is True
     assert descriptor.requirements.needs_thread_jump is True
+    assert descriptor.requirements.needs_labeled_continuation is True
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "inline_zero_branch"
+    assert descriptor.continuation is dictionary.ContinuationKind.LABELED
+    assert descriptor.continuation_labels == (
+        ("branch_taken", dictionary.ContinuationKind.EXACT_IP),
+        ("branch_fallthrough", dictionary.ContinuationKind.FALLTHROUGH),
+    )
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.ZBRANCH)) is dictionary.PRIMITIVE_INLINE_OPERAND_FAMILY
 
 
@@ -246,6 +255,7 @@ def test_instruction_registry_exposes_docol_word_local_thread_metadata() -> None
     assert descriptor.requirements.needs_execution_control is True
     assert descriptor.requirements.needs_error_exit is True
     assert descriptor.requirements.kernel == "enter_thread"
+    assert descriptor.continuation is dictionary.ContinuationKind.EXACT_IP
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.DOCOL)) is dictionary.COLON_THREAD_FAMILY
 
 

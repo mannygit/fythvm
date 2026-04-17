@@ -2,9 +2,9 @@
 
 ## Question
 
-What is the smallest useful seam between a Python dispatch loop and one lowered
-handler, if we want to start lowering slowly without giving up the visibility of the
-host-side loop?
+What is the smallest useful seam between a Python outer loop and a progressively
+lowered inner interpreter, if we want to lower slowly without giving up host-side
+visibility?
 
 ## Setup
 
@@ -26,9 +26,9 @@ This lab keeps almost everything in Python:
 - the state also carries current-thread storage (`thread_cells` + `thread_length`) so a
   promoted `ThreadCursorIR` can wrap `ip` without inventing a separate thread-state
   axis
-- the state still carries a current-word thread extent plus a small return-frame area
-  so `DOCOL` can enter a child thread without collapsing the whole interpreter into a
-  native dispatch loop
+- the state still carries seam-local child-thread extents plus a small return-frame
+  area so `DOCOL` can enter a child thread without pretending the dictionary itself
+  carries Forth-level thread lengths
 
 This lab is the direct lowering follow-on to
 [handler-requirements-python-loop](/Users/manny/fythvm/explorations/lab/handler-requirements-python-loop/README.md:1).
@@ -127,6 +127,10 @@ fallthrough-versus-exact continuation:
 - lowered dispatch resolves custom-word CFAs through the dictionary first
 - then it falls back to primitive handler ids and enters the already-defined local op
   emitter for that handler
+- the lowering now also keeps the `W`-like facts explicit in SSA:
+  - fetched `current_xt`
+  - dictionary match / found-word index
+  - resolved handler id
 - ordinary ops continue through descriptor metadata to a shared `advance_ip` block
 - `BRANCH`, `DOCOL`, and `EXIT` all use `EXACT_IP` continuation metadata
 - `0BRANCH` is the one labeled-continuation op; it selects `branch_taken` versus
@@ -136,9 +140,12 @@ fallthrough-versus-exact continuation:
 
 That means the seam is intentionally narrow:
 
-- Python still owns the outer loop and the trace
-- lowered step now owns fetch, dispatch, and shared continuation for one interpreter step
-- Python now mostly interprets the changed state for visibility, not for step control
+- Python still owns scenario setup and trace capture
+- lowered `step` owns fetch, dispatch, and shared continuation for one interpreter step
+- lowered `run` owns the same fetch/dispatch/continuation shape across repeated inner
+  steps until halt or refetch exhaustion
+- Python now mostly interprets changed state for visibility, not for interpreter-step
+  control
 
 ## How to Run
 
@@ -157,8 +164,10 @@ docker compose run --rm dev uv run python explorations/lab/lowered-handler-pytho
 
 The run prints:
 
-- the generated LLVM IR for the shared lowered `NEXT`-like step, including embedded
-  `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, `EXIT`, and `HALT` case blocks
+- the generated LLVM IR for the shared lowered `NEXT`-like step and run entrypoints,
+  including embedded `LIT`, `ADD`, `BRANCH`, `0BRANCH`, `DOCOL`, `EXIT`, and `HALT`
+  case blocks
+- raw and O3 IR artifacts at the repo top level for direct comparison
 - a `HALT`-only scenario
 - a scenario where the JIT handles `LIT`, `ADD`, and `HALT`
 - a scenario where the JIT handles `LIT`, `BRANCH`, and `HALT`
@@ -170,6 +179,11 @@ The run prints:
   - backend
   - stack before/after
   - state flags before/after
+- equivalence checks between:
+  - raw `lowered_step`
+  - O3 `lowered_step`
+  - raw `lowered_run`
+  - O3 `lowered_run`
 
 It also uses `HandlerRequirements` for two declarative pieces:
 
@@ -186,9 +200,10 @@ That now includes the promoted stack-access path:
 The important visible behavior is:
 
 - the lowered step still ends with an ordinary `ret void`
+- the lowered run also ends with an ordinary `ret void`; it just keeps chaining
+  through the lowered inner loop until halt or out-of-bounds refetch
 - after the JIT call returns, Python sees `HALT_REQUESTED` set in shared state
-- the Python loop stops because of that state bit, not because the lowered function
-  somehow owns the whole dispatch loop
+- Python no longer decides per-step continuation policy at all
 - continuation is no longer expressed through `exact_ip_requested`
 - continuation is now a property of the operation descriptor, with one labeled special
   case for `0BRANCH`, rather than a direct trampoline call from every op body
@@ -207,11 +222,12 @@ This lab explicitly demonstrates the first promoted lowering ingredients in one 
 
 If we want to start lowering very slowly, a good first seam is:
 
-- keep Python as the outer loop
+- keep Python as the outer loop first
 - lower one handler at a time
 - let lowered code mutate shared state through injected surfaces
-- then, once enough pieces hold up, move continuation into a shared lowered
-  `NEXT`-like trampoline instead of keeping a host-visible exact-`ip` side channel
+- then move continuation into a shared lowered `NEXT`-like trampoline
+- then, once fetch/dispatch pressure is explicit enough, let the lowered side own a
+  real multi-step inner loop as well as the trace-friendly one-step entrypoint
 
 This is especially clean for `HALT`, because the lowered handler can set a control bit
 and return without forcing arithmetic lowering, thread-cursor lowering, or a full
@@ -263,9 +279,9 @@ native-dispatch rewrite too early. This pass still keeps the question narrower t
 that: shared state plus local op bodies, with Python continuing to own outer dispatch.
 
 It is also easy to let the local op body own whole-step termination. In this lab,
-`op_halt_ir(...)`, `op_lit_ir(...)`, and friends only emit their local effects plus a
-branch to a named continuation target. The shared step trampoline owns the final
-`ret void` sites. That keeps the op bodies closer to the long-term lowering shape.
+`op_halt_ir(...)`, `op_lit_ir(...)`, and friends only emit their local effects plus,
+in the `0BRANCH` special case, an SSA continuation outcome. Descriptor metadata and
+the shared interpreter shape own the actual CFG termination and re-entry decisions.
 
 It is also easy to lower too much state too soon. This lab keeps the state struct
 small on purpose so the host/JIT boundary stays obvious.
@@ -273,10 +289,11 @@ small on purpose so the host/JIT boundary stays obvious.
 ## Apply When
 
 - you want the first real host/JIT seam for interpreter work
-- you want to lower one handler without committing to a native dispatch loop yet
+- you want to lower one handler at a time without committing to a package-wide native
+  dispatch design yet
 - you want to prove that a shared state struct is enough for Python/native handoff
 - you want a visibility-friendly starting point before lowering more kernels like
-  `+`, thread jumps, or threaded entry
+  `+`, thread jumps, threaded entry, or a real `NEXT` loop
 
 ## Avoid When
 
@@ -287,8 +304,10 @@ small on purpose so the host/JIT boundary stays obvious.
 
 ## Next Questions
 
-- Should the promoted thread-access layer grow a reusable current-thread replacement
-  helper once `DOCOL` and `EXIT` both want it?
-- At what point does the Python loop stop being the right place for dispatch?
-- Which next seam capabilities belong in `HandlerRequirements` after
-  `needs_execution_control`?
+- Should the package eventually grow a more explicit `W`-like current-word abstraction
+  now that fetch, dictionary match, and handler resolution pressure are visible in one
+  place?
+- At what point does the seam-local child-thread-length table stop being worth the
+  host-side practicality cost?
+- When the inner loop becomes the primary lowered path, which part of this `NEXT`
+  shape deserves promotion beyond the seam lab?

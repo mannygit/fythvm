@@ -23,6 +23,19 @@ class ThreadRecord:
     thread: tuple[int, ...]
 
 
+@dataclass
+class PreparedScenarioExecution:
+    dictionary_runtime: dictionary.DictionaryRuntime
+    word_thread_lengths: ctypes.Array[ctypes.c_int32]
+    entry_buffer: ctypes.Array[ctypes.c_int32]
+    state: LoweredLoopState
+    state_ptr: ctypes._Pointer[LoweredLoopState]  # type: ignore[attr-defined]
+    resolved_thread: tuple[int, ...]
+    resolved_words: tuple[ResolvedWord, ...]
+    thread_records: dict[int, ThreadRecord]
+    custom_word_map: dict[int, ResolvedWord]
+
+
 def dictionary_thread_ptr(memory: dictionary.DictionaryMemory, cell_index: int) -> ctypes._Pointer[ctypes.c_int32]:  # type: ignore[attr-defined]
     return ctypes.cast(memory.get_cell_addr(cell_index), ctypes.POINTER(ctypes.c_int32))
 
@@ -174,15 +187,19 @@ def decompile_thread(
 
 def halt_requested(state: LoweredLoopState) -> bool:
     return bool(int(state.halt_requested))
-def execute_scenario(
-    scenario: Scenario,
-    lowered_step: ctypes._CFuncPtr,  # type: ignore[attr-defined]
-) -> ScenarioResult:
+
+
+def prepare_scenario_execution(scenario: Scenario) -> PreparedScenarioExecution:
     dictionary_runtime, resolved_words, resolved_entry_thread = materialize_dictionary_words(scenario)
+    word_thread_lengths = (ctypes.c_int32 * dictionary.DEFAULT_MEMORY_CELLS)()
+    for word in resolved_words:
+        word_thread_lengths[word.xt] = len(word.thread)
+
     state = LoweredLoopState()
     state.dictionary_memory = ctypes.pointer(dictionary_runtime.memory)
     state.sp = STACK_CAPACITY
     state.rsp = RETURN_STACK_CAPACITY
+    state.word_thread_lengths = ctypes.cast(word_thread_lengths, ctypes.POINTER(ctypes.c_int32))
 
     entry_buffer = materialize_thread_buffer(resolved_entry_thread)
     entry_ptr = ctypes.cast(entry_buffer, ctypes.POINTER(ctypes.c_int32))
@@ -198,23 +215,35 @@ def execute_scenario(
         ptr = dictionary_thread_ptr(dictionary_runtime.memory, word.dfa_index)
         thread_records[pointer_key(ptr)] = ThreadRecord(name=word.name, thread=word.thread)
 
+    return PreparedScenarioExecution(
+        dictionary_runtime=dictionary_runtime,
+        word_thread_lengths=word_thread_lengths,
+        entry_buffer=entry_buffer,
+        state=state,
+        state_ptr=ctypes.pointer(state),
+        resolved_thread=resolved_entry_thread,
+        resolved_words=resolved_words,
+        thread_records=thread_records,
+        custom_word_map=custom_word_map,
+    )
+
+
+def execute_scenario(
+    scenario: Scenario,
+    lowered_step: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+) -> ScenarioResult:
+    prepared = prepare_scenario_execution(scenario)
+    state = prepared.state
     trace_rows: list[TraceRow] = []
-    state_ptr = ctypes.pointer(state)
 
     while not halt_requested(state):
-        current_record = current_thread_record(state, thread_records)
+        current_record = current_thread_record(state, prepared.thread_records)
         ip = int(state.ip)
         if ip >= len(current_record.thread):
             raise RuntimeError(f"{current_record.name} stepped past end without HALT or EXIT")
 
         xt = int(current_record.thread[ip])
-        descriptor, word_name = resolve_word_descriptor(xt, custom_word_map)
-
-        if xt in custom_word_map:
-            word = custom_word_map[xt]
-            state.current_word_thread_length = len(word.thread)
-        else:
-            state.current_word_thread_length = 0
+        descriptor, word_name = resolve_word_descriptor(xt, prepared.custom_word_map)
 
         ensure_data_stack_requirements(state, descriptor)
         ensure_return_stack_requirements(state, descriptor)
@@ -223,7 +252,7 @@ def execute_scenario(
 
         if descriptor.handler_id in LOWERED_HANDLER_SPECS:
             backend = "jit"
-            lowered_step(state_ptr)
+            lowered_step(prepared.state_ptr)
             note = LOWERED_HANDLER_SPECS[descriptor.handler_id].note
         else:
             raise RuntimeError(f"unsupported handler in seam lab: {descriptor.key}")
@@ -246,8 +275,8 @@ def execute_scenario(
             break
 
     return ScenarioResult(
-        resolved_thread=resolved_entry_thread,
-        resolved_words=resolved_words,
+        resolved_thread=prepared.resolved_thread,
+        resolved_words=prepared.resolved_words,
         final_stack=stack_snapshot(state),
         final_ip=int(state.ip),
         state_flags=state_flags_value(state),
@@ -255,7 +284,28 @@ def execute_scenario(
     )
 
 
-def assert_result_matches(scenario: Scenario, result: ScenarioResult) -> None:
+def execute_scenario_to_completion(
+    scenario: Scenario,
+    lowered_run: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+) -> ScenarioResult:
+    prepared = prepare_scenario_execution(scenario)
+    lowered_run(prepared.state_ptr)
+    return ScenarioResult(
+        resolved_thread=prepared.resolved_thread,
+        resolved_words=prepared.resolved_words,
+        final_stack=stack_snapshot(prepared.state),
+        final_ip=int(prepared.state.ip),
+        state_flags=state_flags_value(prepared.state),
+        trace=(),
+    )
+
+
+def assert_result_matches(
+    scenario: Scenario,
+    result: ScenarioResult,
+    *,
+    require_trace: bool = True,
+) -> None:
     assert result.final_stack == scenario.expected_stack, (
         f"{scenario.name}: expected stack {scenario.expected_stack}, got {result.final_stack}"
     )
@@ -265,10 +315,11 @@ def assert_result_matches(scenario: Scenario, result: ScenarioResult) -> None:
     assert result.state_flags == scenario.expected_state_flags, (
         f"{scenario.name}: expected state flags {scenario.expected_state_flags}, got {result.state_flags}"
     )
-    actual_backends = tuple(row.backend for row in result.trace)
-    assert actual_backends == scenario.expected_trace_backends, (
-        f"{scenario.name}: expected backends {scenario.expected_trace_backends}, got {actual_backends}"
-    )
+    if require_trace:
+        actual_backends = tuple(row.backend for row in result.trace)
+        assert actual_backends == scenario.expected_trace_backends, (
+            f"{scenario.name}: expected backends {scenario.expected_trace_backends}, got {actual_backends}"
+        )
 
 
 def pointer_key(ptr: ctypes._Pointer[ctypes.c_int32]) -> int:  # type: ignore[attr-defined]

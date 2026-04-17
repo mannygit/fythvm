@@ -118,8 +118,24 @@ class LoweredHandlerSpec:
     function_name: str
     op: LoweredOp
     note: str
+
+
 def lowered_step_function_name() -> str:
     return "lowered_step"
+
+
+def lowered_run_function_name() -> str:
+    return "lowered_run"
+
+
+@dataclass(frozen=True)
+class LoweredDispatchFactsIR:
+    """W-like dispatch facts that stay explicit across fetch and handler resolution."""
+
+    current_xt: ir.Value
+    found_word_index: ir.Value
+    dictionary_memory: ir.Value
+    resolved_handler_id: ir.Value
 
 
 @dataclass(frozen=True)
@@ -128,7 +144,7 @@ class CurrentXtDictionaryThreadIR:
 
     state: LoweredLoopStateView
     dictionary_ir: dictionary.DictionaryIR
-    thread_length_field_name: str = "current_word_thread_length"
+    thread_length_table_field_name: str = "word_thread_lengths"
 
     def ref(self) -> ThreadRefIR:
         current_xt = self.state.current_xt.load(name="current_xt")
@@ -136,10 +152,20 @@ class CurrentXtDictionaryThreadIR:
             current_xt,
             name="current_word_thread_cells",
         )
-        thread_length_field = getattr(self.state, self.thread_length_field_name)
+        thread_length_table_field = getattr(self.state, self.thread_length_table_field_name)
+        thread_length_table = thread_length_table_field.load(name="word_thread_lengths")
+        thread_length_ptr = self.dictionary_ir.builder.gep(
+            thread_length_table,
+            [current_xt],
+            inbounds=True,
+            name="current_word_thread_length_ptr",
+        )
         return ThreadRefIR(
             cells=thread_cells,
-            length=thread_length_field.load(name="current_word_thread_length"),
+            length=self.dictionary_ir.builder.load(
+                thread_length_ptr,
+                name="current_word_thread_length",
+            ),
         )
 
 
@@ -355,6 +381,59 @@ def emit_fetch_current_xt(
     return current_xt
 
 
+def emit_dispatch_facts(
+    *,
+    function: ir.Function,
+    builder: ir.IRBuilder,
+    state: LoweredLoopStateView,
+    fetch_block: ir.Block,
+    dispatch_custom_block: ir.Block,
+    dispatch_primitive_block: ir.Block,
+    dispatch_resolved_block: ir.Block,
+    name_prefix: str,
+) -> LoweredDispatchFactsIR:
+    builder.branch(fetch_block)
+
+    with builder.goto_block(fetch_block):
+        current_xt = emit_fetch_current_xt(builder, state, name_prefix=f"{name_prefix}_fetch")
+        dictionary_memory = state.dictionary_memory.load(name=f"{name_prefix}_dictionary_memory")
+        dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
+        found_word_index = dictionary_ir.find_word_by_cfa(current_xt)
+        found_custom_word = builder.icmp_signed(
+            "!=",
+            found_word_index,
+            I32(dictionary.NULL_INDEX),
+            name=f"{name_prefix}_found_custom_word",
+        )
+        builder.cbranch(found_custom_word, dispatch_custom_block, dispatch_primitive_block)
+
+    with builder.goto_block(dispatch_custom_block):
+        custom_dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
+        custom_word = custom_dictionary_ir.word(found_word_index)
+        custom_code_field = custom_word.code_field.bind(custom_dictionary_ir.code_field_handle)
+        custom_handler_id = builder.zext(
+            custom_code_field.handler_id.load(name=f"{name_prefix}_custom_handler_id_i7"),
+            I32,
+            name=f"{name_prefix}_custom_handler_id",
+        )
+        builder.branch(dispatch_resolved_block)
+
+    with builder.goto_block(dispatch_primitive_block):
+        builder.branch(dispatch_resolved_block)
+
+    with builder.goto_block(dispatch_resolved_block):
+        resolved_handler_id = builder.phi(I32, name=f"{name_prefix}_handler_id")
+        resolved_handler_id.add_incoming(custom_handler_id, dispatch_custom_block)
+        resolved_handler_id.add_incoming(current_xt, dispatch_primitive_block)
+
+    return LoweredDispatchFactsIR(
+        current_xt=current_xt,
+        found_word_index=found_word_index,
+        dictionary_memory=dictionary_memory,
+        resolved_handler_id=resolved_handler_id,
+    )
+
+
 def _continuation_block_for_kind(
     continuation: dictionary.ContinuationKind,
     *,
@@ -414,12 +493,17 @@ def emit_descriptor_continuation(
         builder.branch(halt_block)
 
 
-def define_lowered_step(module: ir.Module) -> None:
+def define_lowered_interpreter(
+    module: ir.Module,
+    *,
+    function_name: str,
+    run_to_completion: bool,
+) -> None:
     state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
     function = ir.Function(
         module,
         ir.FunctionType(VOID, [state_ptr_type]),
-        name=lowered_step_function_name(),
+        name=function_name,
     )
     builder = ir.IRBuilder(function.append_basic_block(name="entry"))
     state_ptr = function.args[0]
@@ -432,80 +516,56 @@ def define_lowered_step(module: ir.Module) -> None:
     advance_ip_block = function.append_basic_block("advance_ip")
     refetch_block = function.append_basic_block("refetch")
     halt_block = function.append_basic_block("halt")
-    step_complete_block = function.append_basic_block("step_complete")
-    builder.branch(fetch_block)
+    return_block = function.append_basic_block("return")
+    dispatch_facts = emit_dispatch_facts(
+        function=function,
+        builder=builder,
+        state=state,
+        fetch_block=fetch_block,
+        dispatch_custom_block=dispatch_custom_block,
+        dispatch_primitive_block=dispatch_primitive_block,
+        dispatch_resolved_block=dispatch_resolved_block,
+        name_prefix=function_name,
+    )
 
-    with builder.goto_block(fetch_block):
-        current_xt = emit_fetch_current_xt(builder, state, name_prefix="step_fetch")
-        dictionary_memory = state.dictionary_memory.load(name="dispatch_dictionary_memory")
-        dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
-        found_word_index = dictionary_ir.find_word_by_cfa(current_xt)
-        found_custom_word = builder.icmp_signed(
-            "!=",
-            found_word_index,
-            I32(dictionary.NULL_INDEX),
-            name="dispatch_found_custom_word",
-        )
-        builder.cbranch(found_custom_word, dispatch_custom_block, dispatch_primitive_block)
+    builder.position_at_end(dispatch_resolved_block)
+    default_block = function.append_basic_block("unsupported")
+    dispatcher = builder.switch(dispatch_facts.resolved_handler_id, default_block)
+    for spec in LOWERED_HANDLER_SPECS.values():
+        descriptor = dictionary.instruction_descriptor_for_handler_id(spec.handler_id)
+        if descriptor is None:
+            raise RuntimeError(f"missing descriptor for lowered handler id {spec.handler_id}")
 
-    with builder.goto_block(dispatch_custom_block):
-        dictionary_memory = state.dictionary_memory.load(name="custom_dictionary_memory")
-        dictionary_ir = dictionary.DictionaryIR(builder, dictionary_memory)
-        custom_word = dictionary_ir.word(found_word_index)
-        custom_code_field = custom_word.code_field.bind(dictionary_ir.code_field_handle)
-        custom_handler_id = builder.zext(
-            custom_code_field.handler_id.load(name="dispatch_custom_handler_id_i7"),
-            I32,
-            name="dispatch_custom_handler_id",
-        )
-        builder.branch(dispatch_resolved_block)
-
-    with builder.goto_block(dispatch_primitive_block):
-        primitive_handler_id = state.current_xt.load(name="dispatch_primitive_handler_id")
-        builder.branch(dispatch_resolved_block)
-
-    with builder.goto_block(dispatch_resolved_block):
-        resolved_handler_id = builder.phi(I32, name="dispatch_handler_id")
-        resolved_handler_id.add_incoming(custom_handler_id, dispatch_custom_block)
-        resolved_handler_id.add_incoming(primitive_handler_id, dispatch_primitive_block)
-
-        default_block = function.append_basic_block("unsupported")
-        dispatcher = builder.switch(resolved_handler_id, default_block)
-        for spec in LOWERED_HANDLER_SPECS.values():
-            descriptor = dictionary.instruction_descriptor_for_handler_id(spec.handler_id)
-            if descriptor is None:
-                raise RuntimeError(f"missing descriptor for lowered handler id {spec.handler_id}")
-
-            case_block = function.append_basic_block(f"case_{spec.function_name}")
-            dispatcher.add_case(I32(spec.handler_id), case_block)
-            with builder.goto_block(case_block):
-                labeled_continuation = None
-                if descriptor.requirements.needs_labeled_continuation:
-                    label_ids = {
-                        label_name: label_index
-                        for label_index, (label_name, _target_kind) in enumerate(
-                            descriptor.continuation_labels
-                        )
-                    }
-                    labeled_continuation = SeamLabeledContinuationIR(
-                        builder=builder,
-                        label_ids=label_ids,
+        case_block = function.append_basic_block(f"case_{spec.function_name}")
+        dispatcher.add_case(I32(spec.handler_id), case_block)
+        with builder.goto_block(case_block):
+            labeled_continuation = None
+            if descriptor.requirements.needs_labeled_continuation:
+                label_ids = {
+                    label_name: label_index
+                    for label_index, (label_name, _target_kind) in enumerate(
+                        descriptor.continuation_labels
                     )
-                kwargs = injected_ir_resources(
+                }
+                labeled_continuation = SeamLabeledContinuationIR(
                     builder=builder,
-                    state=state,
-                    descriptor=descriptor,
-                    labeled_continuation=labeled_continuation,
+                    label_ids=label_ids,
                 )
-                labeled_continuation_value = spec.op(builder, **kwargs)
-                emit_descriptor_continuation(
-                    builder=builder,
-                    descriptor=descriptor,
-                    advance_ip_block=advance_ip_block,
-                    refetch_block=refetch_block,
-                    halt_block=halt_block,
-                    labeled_continuation_value=labeled_continuation_value,
-                )
+            kwargs = injected_ir_resources(
+                builder=builder,
+                state=state,
+                descriptor=descriptor,
+                labeled_continuation=labeled_continuation,
+            )
+            labeled_continuation_value = spec.op(builder, **kwargs)
+            emit_descriptor_continuation(
+                builder=builder,
+                descriptor=descriptor,
+                advance_ip_block=advance_ip_block,
+                refetch_block=refetch_block,
+                halt_block=halt_block,
+                labeled_continuation_value=labeled_continuation_value,
+            )
 
     with builder.goto_block(default_block):
         state.halt_requested.store(TRUE_BIT)
@@ -526,17 +586,37 @@ def define_lowered_step(module: ir.Module) -> None:
         builder.cbranch(can_refetch, refetch_in_bounds_block, refetch_done_block)
 
     with builder.goto_block(refetch_in_bounds_block):
-        emit_fetch_current_xt(builder, state, name_prefix="step_refetch")
-        builder.branch(refetch_done_block)
+        if run_to_completion:
+            builder.branch(fetch_block)
+        else:
+            emit_fetch_current_xt(builder, state, name_prefix="step_refetch")
+            builder.branch(refetch_done_block)
 
     with builder.goto_block(refetch_done_block):
-        builder.branch(step_complete_block)
+        builder.branch(return_block)
 
     with builder.goto_block(halt_block):
+        builder.branch(return_block)
+
+    with builder.goto_block(return_block):
         builder.ret_void()
 
-    with builder.goto_block(step_complete_block):
-        builder.ret_void()
+
+def define_lowered_step(module: ir.Module) -> None:
+    define_lowered_interpreter(
+        module,
+        function_name=lowered_step_function_name(),
+        run_to_completion=False,
+    )
+
+
+def define_lowered_run(module: ir.Module) -> None:
+    define_lowered_interpreter(
+        module,
+        function_name=lowered_run_function_name(),
+        run_to_completion=True,
+    )
+
 
 def build_lowered_runtime(
     *,
@@ -546,6 +626,8 @@ def build_lowered_runtime(
     object,
     ctypes._CFuncPtr,  # type: ignore[attr-defined]
     int,
+    ctypes._CFuncPtr,  # type: ignore[attr-defined]
+    int,
 ]:
     target = binding.Target.from_default_triple()
     target_machine = target.create_target_machine()
@@ -553,6 +635,7 @@ def build_lowered_runtime(
     module.triple = binding.get_default_triple()
     module.data_layout = str(target_machine.target_data)
     define_lowered_step(module)
+    define_lowered_run(module)
 
     compiled = compile_ir_module(module, speed_level=speed_level)
     lowered_step_address = compiled.function_address(lowered_step_function_name())
@@ -560,4 +643,9 @@ def build_lowered_runtime(
         None,
         ctypes.POINTER(LoweredLoopState),
     )(lowered_step_address)
-    return module, compiled, lowered_step, lowered_step_address
+    lowered_run_address = compiled.function_address(lowered_run_function_name())
+    lowered_run = ctypes.CFUNCTYPE(
+        None,
+        ctypes.POINTER(LoweredLoopState),
+    )(lowered_run_address)
+    return module, compiled, lowered_step, lowered_step_address, lowered_run, lowered_run_address

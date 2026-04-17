@@ -9,6 +9,7 @@ def print_scenario(
     result: ScenarioResult,
     *,
     lowered_step_address: int,
+    lowered_run_address: int,
 ) -> None:
     print(f"== {scenario.name.upper()} ==")
     print("thread:")
@@ -19,6 +20,7 @@ def print_scenario(
         for line in decompile_thread(word.thread, custom_words=result.resolved_words):
             print(f"  {line}")
     print(f"lowered NEXT-step address: 0x{lowered_step_address:x}")
+    print(f"lowered NEXT-run address:  0x{lowered_run_address:x}")
     print(
         "expected:"
         f" stack={list(scenario.expected_stack)}"
