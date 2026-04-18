@@ -30,10 +30,10 @@ This lab keeps almost everything in Python:
   surface:
   - fetched `current_xt`
   - dictionary match / found-word index
-  - resolved handler id
-- the state still carries seam-local child-thread extents plus a small return-frame
-  area so `DOCOL` can enter a child thread without pretending the dictionary itself
-  carries Forth-level thread lengths
+  - resolved code-field execution meaning
+- the state now only carries the current thread plus a small return-frame area
+- `DOCOL` resolves both child-thread cells and child-thread extent from the current
+  word's code field instead of from a seam-local length side table
 
 This lab is the direct lowering follow-on to
 [handler-requirements-python-loop](/Users/manny/fythvm/explorations/lab/handler-requirements-python-loop/README.md:1).
@@ -55,8 +55,8 @@ thing:
   `DictionaryIR`
 - Python no longer stuffs `current_word_thread_cells` into shared state before every
   threaded call
-- the child-thread length remains seam-local for now, because the dictionary layout
-  does not treat thread extent as first-class Forth metadata
+- the child-thread extent is now carried as code-field execution data for this lab,
+  so the lowered side no longer needs a separate `word_thread_lengths` state field
 
 And it now kicks the tires of one real outer-interpreter edge on top of that lowered
 core:
@@ -102,18 +102,18 @@ surfaces, not backend policy:
 - `0BRANCH` declares stack ingress plus `needs_thread_cursor=True` and
   `needs_thread_jump=True`
 - the lowered op body is shaped like `op_zbranch_ir(builder, *, data_stack, thread_cursor, thread_jump, err)`
-- `DOCOL` declares `needs_current_xt=True`, `needs_return_stack=True`, and
+- `DOCOL` declares `needs_code_field_execution=True`, `needs_return_stack=True`, and
   `needs_execution_control=True`
 - the lowered op body is shaped like
-  `op_docol_ir(builder, *, current_word, return_stack, control, err)`
+  `op_docol_ir(builder, *, current_execution, return_stack, control, err)`
 - `0BRANCH` is the one special case that also declares
   `needs_labeled_continuation=True`
 - the shared step interprets descriptor continuation metadata after the local op body
   runs
 - the shared step trampoline injects `StructViewStackAccess(state).bind(builder)` and
   `ThreadCursorIR` when the descriptor requirements ask for them
-- the shared step trampoline now also injects dictionary-backed current-word thread
-  access plus promoted `ReturnStackIR` when `DOCOL` asks for them
+- the shared step trampoline now also injects code-field-backed execution metadata
+  plus promoted `ReturnStackIR` when `DOCOL` asks for them
 - the host-visible state projection is generated from ctypes layout, including logical
   bitfield views for control state
 
@@ -126,8 +126,8 @@ The lab now also has the next seam surfaces ready for threaded entry:
   `needs_thread_cursor=True`
 - the lowered step can inject `ThreadJumpIR` for handlers that declare
   `needs_thread_jump=True`
-- the lowered step can inject dictionary-backed current-word thread access for
-  handlers that declare `needs_current_xt=True`
+- the lowered step can inject a code-field execution surface for handlers that declare
+  `needs_code_field_execution=True`
 
 Backend choice stays lab-local, and the active threaded-control scenarios now route
 through the shared lowered step all the way through `EXIT`.
@@ -156,7 +156,8 @@ That means the seam is intentionally narrow:
 - Python still owns scenario setup and trace capture
 - lowered `step` owns fetch, dispatch, and shared continuation for one interpreter step
 - lowered `run` owns the same fetch/dispatch/continuation shape across repeated inner
-  steps until halt or refetch exhaustion
+  steps until halt or refetch exhaustion and is now the canonical multi-step lowered
+  inner interpreter for this lab
 - Python now mostly interprets changed state for visibility, not for interpreter-step
   control
 - the two lowered entrypoints are now intentional modes of the same interpreter shape:

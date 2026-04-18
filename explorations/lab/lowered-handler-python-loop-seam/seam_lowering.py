@@ -167,6 +167,7 @@ def injected_ir_resources(
     state: LoweredLoopStateView,
     descriptor: dictionary.InstructionDescriptor,
     current_word: dictionary.CurrentWordIR | None = None,
+    current_execution: dictionary.CodeFieldExecutionIR | None = None,
     labeled_continuation: SeamLabeledContinuationIR | None = None,
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {}
@@ -181,6 +182,12 @@ def injected_ir_resources(
         if current_word is None:
             raise RuntimeError(f"{descriptor.key} requested current_word without a surface")
         kwargs["current_word"] = current_word
+    if requirements.needs_code_field_execution:
+        if current_execution is None:
+            raise RuntimeError(
+                f"{descriptor.key} requested current_execution without a surface"
+            )
+        kwargs["current_execution"] = current_execution
     if requirements.needs_return_stack:
         kwargs["return_stack"] = ReturnStackIR(builder=builder, state=state)
     if requirements.needs_execution_control:
@@ -283,7 +290,7 @@ def op_zbranch_ir(
 def op_docol_ir(
     builder: ir.IRBuilder,
     *,
-    current_word: dictionary.CurrentWordIR,
+    current_execution: dictionary.CodeFieldExecutionIR,
     return_stack: ReturnStackIR,
     control: LoweredExecutionControlIR,
     err: LoweredErrorExitIR,
@@ -292,9 +299,8 @@ def op_docol_ir(
 
     _ = builder
     _ = err
-    word_thread_lengths = current_word.state.word_thread_lengths.load(name="word_thread_lengths")
     control.enter_thread(
-        thread=current_word.thread_ref(word_thread_lengths),
+        thread=current_execution.thread_ref(name_prefix="current_execution"),
         return_stack=return_stack,
     )
     return None
@@ -527,6 +533,7 @@ def define_lowered_step_current(module: ir.Module) -> ir.Function:
                 state=state,
                 descriptor=descriptor,
                 current_word=run_current_xt.current_word,
+                current_execution=run_current_xt.execution,
                 labeled_continuation=labeled_continuation,
             )
             labeled_continuation_value = spec.op(builder, **kwargs)

@@ -22,6 +22,7 @@ class CurrentWordIR:
     current_xt: ir.Value
     found_word_index: ir.Value
     resolved_handler_id: ir.Value
+    resolved_code_field_data: ir.Value
     current_xt_field_name: str = "current_xt"
 
     def is_custom_word(self) -> ir.Value:
@@ -39,24 +40,10 @@ class CurrentWordIR:
     def thread_cells_ptr(self, *, name: str = "current_word_thread_cells") -> ir.Value:
         return self.dictionary_ir.thread_cells_ptr_for_cfa(self.current_xt, name=name)
 
-    def thread_ref(
-        self,
-        thread_length_table: ir.Value,
-        *,
-        name_prefix: str = "current_word",
-    ) -> ThreadRefIR:
-        thread_length_ptr = self.dictionary_ir.builder.gep(
-            thread_length_table,
-            [self.current_xt],
-            inbounds=True,
-            name=f"{name_prefix}_thread_length_ptr",
-        )
+    def thread_ref(self, *, name_prefix: str = "current_word") -> ThreadRefIR:
         return ThreadRefIR(
             cells=self.thread_cells_ptr(name=f"{name_prefix}_thread_cells"),
-            length=self.dictionary_ir.builder.load(
-                thread_length_ptr,
-                name=f"{name_prefix}_thread_length",
-            ),
+            length=self.resolved_code_field_data,
         )
 
     @classmethod
@@ -94,6 +81,11 @@ class CurrentWordIR:
                 I32,
                 name=f"{name_prefix}_custom_handler_id",
             )
+            custom_code_field_data = builder.zext(
+                custom_code_field.unused.load(name=f"{name_prefix}_custom_code_field_data_i18"),
+                I32,
+                name=f"{name_prefix}_custom_code_field_data",
+            )
             builder.branch(dispatch_resolved_block)
 
         with builder.goto_block(dispatch_primitive_block):
@@ -103,6 +95,9 @@ class CurrentWordIR:
             resolved_handler_id = builder.phi(I32, name=f"{name_prefix}_handler_id")
             resolved_handler_id.add_incoming(custom_handler_id, dispatch_custom_block)
             resolved_handler_id.add_incoming(current_xt, dispatch_primitive_block)
+            resolved_code_field_data = builder.phi(I32, name=f"{name_prefix}_code_field_data")
+            resolved_code_field_data.add_incoming(custom_code_field_data, dispatch_custom_block)
+            resolved_code_field_data.add_incoming(I32(0), dispatch_primitive_block)
 
         return cls(
             state=state,
@@ -110,7 +105,23 @@ class CurrentWordIR:
             current_xt=current_xt,
             found_word_index=found_word_index,
             resolved_handler_id=resolved_handler_id,
+            resolved_code_field_data=resolved_code_field_data,
             current_xt_field_name=current_xt_field_name,
+        )
+
+
+@dataclass(frozen=True)
+class CodeFieldExecutionIR:
+    """Execution meaning derived from the current word's code field."""
+
+    current_word: CurrentWordIR
+    handler_id: ir.Value
+    associated_data_cells: ir.Value
+
+    def thread_ref(self, *, name_prefix: str = "current_word") -> ThreadRefIR:
+        return ThreadRefIR(
+            cells=self.current_word.thread_cells_ptr(name=f"{name_prefix}_thread_cells"),
+            length=self.associated_data_cells,
         )
 
 
@@ -119,6 +130,7 @@ class RunCurrentXtIR:
     """Shared center for executing the currently installed xt."""
 
     current_word: CurrentWordIR
+    execution: CodeFieldExecutionIR
     dispatch_current_block: ir.Block
     dispatch_custom_block: ir.Block
     dispatch_primitive_block: ir.Block
@@ -126,7 +138,7 @@ class RunCurrentXtIR:
 
     @property
     def resolved_handler_id(self) -> ir.Value:
-        return self.current_word.resolved_handler_id
+        return self.execution.handler_id
 
     @classmethod
     def resolve_from_state(
@@ -155,6 +167,11 @@ class RunCurrentXtIR:
             )
         return cls(
             current_word=current_word,
+            execution=CodeFieldExecutionIR(
+                current_word=current_word,
+                handler_id=current_word.resolved_handler_id,
+                associated_data_cells=current_word.resolved_code_field_data,
+            ),
             dispatch_current_block=dispatch_current_block,
             dispatch_custom_block=dispatch_custom_block,
             dispatch_primitive_block=dispatch_primitive_block,

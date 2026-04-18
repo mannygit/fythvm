@@ -102,10 +102,12 @@ close out. Keep the backlog small and explicit.
     surfaces all hold up, the seam can converge toward a shared lowered `NEXT`-like
     trampoline where continuation is expressed in CFG instead of a host-visible
     exact-`ip` side channel. The lab now also makes `W`-like dispatch facts explicit
-    in SSA and carries both a trace-friendly one-step lowered entrypoint and a
-    multi-step lowered inner-loop entrypoint. It has also started pressure-testing a
-    real outer-interpreter edge by looking up a named word through the runtime
-    dictionary and then executing that `xt` through the lowered core.
+    in SSA, promotes a shared `run current xt` center, carries code-field execution
+    data for colon-word thread extent instead of a seam-local length table, and treats
+    `lowered_run` as the canonical multi-step lowered inner-loop entrypoint. It has
+    also started pressure-testing a real outer-interpreter edge by looking up a named
+    word through the runtime dictionary and then executing that `xt` through the
+    lowered core.
   - Lab: `explorations/lab/lowered-handler-python-loop-seam/`
 
 - `handler-requirements-python-loop`

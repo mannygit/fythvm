@@ -18,7 +18,7 @@ def test_dictionary_runtime_creates_words_and_traverses_newest_first() -> None:
     runtime = dictionary.DictionaryRuntime()
     alpha = runtime.create_word("alpha", handler_id=11, data=(101, 102))
     beta = runtime.create_word("beta", handler_id=22, immediate=True)
-    gamma = runtime.create_word("gamma", handler_id=33, hidden=True, data=(303,))
+    gamma = runtime.create_word("gamma", handler_id=33, hidden=True, code_field_data=7, data=(303,))
 
     assert runtime.memory.latest == gamma.index
     assert runtime.memory.here == gamma.dfa_index + 1
@@ -34,6 +34,7 @@ def test_dictionary_runtime_creates_words_and_traverses_newest_first() -> None:
     assert beta.immediate is True
     assert beta.hidden is False
     assert gamma.hidden is True
+    assert gamma.code_field_data == 7
     assert gamma.read_data_cells(1) == [303]
 
 
@@ -250,11 +251,12 @@ def test_instruction_registry_exposes_docol_word_local_thread_metadata() -> None
     assert descriptor.family is dictionary.COLON_THREAD_FAMILY
     assert descriptor.associated_data_source is dictionary.AssociatedDataSource.WORD_LOCAL_DFA
     assert descriptor.requirements.min_return_stack_out_space == 1
-    assert descriptor.requirements.needs_current_xt is True
+    assert descriptor.requirements.needs_current_xt is False
+    assert descriptor.requirements.needs_code_field_execution is True
     assert descriptor.requirements.needs_return_stack is True
     assert descriptor.requirements.needs_execution_control is True
     assert descriptor.requirements.needs_error_exit is True
-    assert descriptor.requirements.kernel == "enter_thread"
+    assert descriptor.requirements.kernel == "enter_code_field_thread"
     assert descriptor.continuation is dictionary.ContinuationKind.EXACT_IP
     assert dictionary.family_for_handler_id(int(dictionary.PrimitiveInstruction.DOCOL)) is dictionary.COLON_THREAD_FAMILY
 

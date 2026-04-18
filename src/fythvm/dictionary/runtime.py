@@ -139,6 +139,10 @@ class WordRecord:
     def handler_id(self) -> int:
         return int(self.code_field.handler_id)
 
+    @property
+    def code_field_data(self) -> int:
+        return int(self.code_field.unused)
+
     def family(self, registry: InstructionFamilyRegistry | None = None) -> WordFamily:
         return family_for_handler_id(self.handler_id, registry=registry)
 
@@ -169,6 +173,7 @@ class DictionaryRuntime:
         name: str | bytes,
         *,
         handler_id: int = 0,
+        code_field_data: int = 0,
         hidden: bool = False,
         immediate: bool = False,
         data: Sequence[int] = (),
@@ -189,7 +194,9 @@ class DictionaryRuntime:
         prefix.code_field.hidden = int(hidden)
         prefix.code_field.name_length = len(name_bytes)
         prefix.code_field.immediate = int(immediate)
-        prefix.code_field.unused = 0
+        if not 0 <= code_field_data < (1 << 18):
+            raise ValueError(f"code_field_data must fit in 18 bits, got {code_field_data}")
+        prefix.code_field.unused = code_field_data
 
         for offset, cell in enumerate(data):
             self.memory.store_cell(word_index + 2 + offset, int(cell))
@@ -232,7 +239,7 @@ class DictionaryRuntime:
             f"{word.name_bytes.decode('ascii')!r} @ cell {word.index} "
             f"link={word.link} cfa={word.cfa_index} dfa={word.dfa_index} "
             f"hidden={word.hidden} immediate={word.immediate} "
-            f"handler_id={word.handler_id}"
+            f"handler_id={word.handler_id} code_field_data={word.code_field_data}"
         )
 
     def debug_lines(self) -> list[str]:

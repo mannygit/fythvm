@@ -19,8 +19,12 @@ class LoweredLoopState(ctypes.Structure):
         ("ip", ctypes.c_int32),
         ("current_xt", ctypes.c_int32),
         ("thread_cells", ctypes.POINTER(ctypes.c_int32)),
+        # This stays for now as bounds/safety policy, not because we think thread
+        # extent is the right long-term inner-interpreter truth for colon words.
+        # Removing it is currently blocked on a checked access/failure layer, but
+        # that should not block better abstractions elsewhere. If this field starts
+        # forcing the wrong interpreter shape, unblocking its removal takes priority.
         ("thread_length", ctypes.c_int32),
-        ("word_thread_lengths", ctypes.POINTER(ctypes.c_int32)),
         ("stack", ctypes.c_int32 * STACK_CAPACITY),
         ("sp", ctypes.c_int32),
         ("return_thread_cells", ctypes.POINTER(ctypes.c_int32) * RETURN_STACK_CAPACITY),

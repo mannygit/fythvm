@@ -66,6 +66,7 @@ class HandlerRequirements:
     needs_thread_jump: bool = False
     needs_execution_control: bool = False
     needs_current_xt: bool = False
+    needs_code_field_execution: bool = False
     needs_return_stack: bool = False
     needs_input_source: bool = False
     needs_source_cursor: bool = False
@@ -245,6 +246,7 @@ def _req(
     needs_thread_jump: bool = False,
     needs_execution_control: bool = False,
     needs_current_xt: bool = False,
+    needs_code_field_execution: bool = False,
     needs_return_stack: bool = False,
     needs_input_source: bool = False,
     needs_source_cursor: bool = False,
@@ -265,6 +267,7 @@ def _req(
         needs_thread_jump=needs_thread_jump,
         needs_execution_control=needs_execution_control,
         needs_current_xt=needs_current_xt,
+        needs_code_field_execution=needs_code_field_execution,
         needs_return_stack=needs_return_stack,
         needs_input_source=needs_input_source,
         needs_source_cursor=needs_source_cursor,
@@ -450,10 +453,10 @@ DEFAULT_INSTRUCTIONS = InstructionRegistry(
             associated_data_source=AssociatedDataSource.WORD_LOCAL_DFA,
             requirements=_req(
                 min_return_stack_out_space=1,
-                needs_current_xt=True,
+                needs_code_field_execution=True,
                 needs_return_stack=True,
                 needs_execution_control=True,
-                kernel="enter_thread",
+                kernel="enter_code_field_thread",
             ),
             continuation=ContinuationKind.EXACT_IP,
         ),

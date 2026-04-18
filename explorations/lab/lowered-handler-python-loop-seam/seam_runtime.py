@@ -26,7 +26,6 @@ class ThreadRecord:
 @dataclass
 class PreparedScenarioExecution:
     dictionary_runtime: dictionary.DictionaryRuntime
-    word_thread_lengths: ctypes.Array[ctypes.c_int32]
     entry_buffer: ctypes.Array[ctypes.c_int32]
     state: LoweredLoopState
     state_ptr: ctypes._Pointer[LoweredLoopState]  # type: ignore[attr-defined]
@@ -68,6 +67,7 @@ def materialize_dictionary_words(
         word = runtime.create_word(
             blueprint.name,
             handler_id=blueprint.handler_id,
+            code_field_data=len(blueprint.thread),
             data=(0,) * data_arity,
         )
         words_by_name[blueprint.name] = word
@@ -197,15 +197,11 @@ def halt_requested(state: LoweredLoopState) -> bool:
 
 def prepare_scenario_execution(scenario: Scenario) -> PreparedScenarioExecution:
     dictionary_runtime, resolved_words, resolved_entry_thread = materialize_dictionary_words(scenario)
-    word_thread_lengths = (ctypes.c_int32 * dictionary.DEFAULT_MEMORY_CELLS)()
-    for word in resolved_words:
-        word_thread_lengths[word.xt] = len(word.thread)
 
     state = LoweredLoopState()
     state.dictionary_memory = ctypes.pointer(dictionary_runtime.memory)
     state.sp = STACK_CAPACITY
     state.rsp = RETURN_STACK_CAPACITY
-    state.word_thread_lengths = ctypes.cast(word_thread_lengths, ctypes.POINTER(ctypes.c_int32))
 
     entry_buffer = materialize_thread_buffer(resolved_entry_thread)
     entry_ptr = ctypes.cast(entry_buffer, ctypes.POINTER(ctypes.c_int32))
@@ -230,7 +226,6 @@ def prepare_scenario_execution(scenario: Scenario) -> PreparedScenarioExecution:
 
     return PreparedScenarioExecution(
         dictionary_runtime=dictionary_runtime,
-        word_thread_lengths=word_thread_lengths,
         entry_buffer=entry_buffer,
         state=state,
         state_ptr=ctypes.pointer(state),

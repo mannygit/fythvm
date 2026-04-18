@@ -272,6 +272,7 @@ class DictionaryIR:
         name_length: ir.Value,
         *,
         handler_id: int | ir.Value = 0,
+        code_field_data: int | ir.Value = 0,
         hidden: bool | ir.Value = False,
         immediate: bool | ir.Value = False,
         data_values: Sequence[int | ir.Value] = (),
@@ -304,7 +305,20 @@ class DictionaryIR:
             name_length_i5 = self.builder.zext(name_length_i5, ir.IntType(5), name="name_length_i5")
         code_field.name_length.store(name_length_i5)
         code_field.immediate.store(_i1_flag(immediate))
-        code_field.unused.store(ir.IntType(18)(0))
+        code_field_data_value = _i32_value(code_field_data)
+        if code_field_data_value.type.width > 18:
+            code_field_data_value = self.builder.trunc(
+                code_field_data_value,
+                ir.IntType(18),
+                name="code_field_data_i18",
+            )
+        elif code_field_data_value.type.width < 18:
+            code_field_data_value = self.builder.zext(
+                code_field_data_value,
+                ir.IntType(18),
+                name="code_field_data_i18",
+            )
+        code_field.unused.store(code_field_data_value)
 
         for offset, value in enumerate(data_values):
             cell_value = _i32_value(value)

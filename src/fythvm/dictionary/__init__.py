@@ -46,7 +46,7 @@ from .schema import (
 )
 from .runtime import DictionaryMemory, DictionaryRuntime, LookupTrace, WordRecord, aligned_name_region_size
 from .ir import DictionaryIR, aligned_name_region_size_ir
-from .current_word import CurrentWordIR, RunCurrentXtIR
+from .current_word import CodeFieldExecutionIR, CurrentWordIR, RunCurrentXtIR
 
 __all__ = [
     "AssociatedDataSource",
@@ -75,6 +75,7 @@ __all__ = [
     "PayloadKind",
     "PrimitiveInstruction",
     "CodeField",
+    "CodeFieldExecutionIR",
     "CurrentWordIR",
     "RunCurrentXtIR",
     "DictionaryIR",
