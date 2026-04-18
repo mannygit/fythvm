@@ -66,6 +66,7 @@ def main() -> None:
     )
     print(
         f"O3 entrypoints: step=0x{opt_runtime.step.address:x} "
+        f"step_xt=0x{opt_runtime.step_xt.address:x} "
         f"run=0x{opt_runtime.run.address:x}"
     )
     print()
@@ -80,10 +81,18 @@ def main() -> None:
     print()
 
     for scenario in SCENARIOS:
-        raw_step_result = execute_scenario(scenario, raw_runtime.step.cfunc)
-        opt_step_result = execute_scenario(scenario, opt_runtime.step.cfunc)
-        raw_run_result = execute_scenario_to_completion(scenario, raw_runtime.run.cfunc)
-        opt_run_result = execute_scenario_to_completion(scenario, opt_runtime.run.cfunc)
+        raw_step_result = execute_scenario(scenario, raw_runtime.step.cfunc, raw_runtime.step_xt.cfunc)
+        opt_step_result = execute_scenario(scenario, opt_runtime.step.cfunc, opt_runtime.step_xt.cfunc)
+        raw_run_result = execute_scenario_to_completion(
+            scenario,
+            raw_runtime.run.cfunc,
+            raw_runtime.step_xt.cfunc,
+        )
+        opt_run_result = execute_scenario_to_completion(
+            scenario,
+            opt_runtime.run.cfunc,
+            opt_runtime.step_xt.cfunc,
+        )
         assert_result_matches(scenario, raw_step_result)
         assert_result_matches(scenario, opt_step_result)
         assert_result_matches(scenario, raw_run_result, require_trace=False)
@@ -96,6 +105,7 @@ def main() -> None:
             scenario,
             opt_step_result,
             lowered_step=opt_runtime.step,
+            lowered_step_xt=opt_runtime.step_xt,
             lowered_run=opt_runtime.run,
         )
 

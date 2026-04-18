@@ -125,6 +125,14 @@ def lowered_step_function_name() -> str:
     return "lowered_step"
 
 
+def lowered_step_current_function_name() -> str:
+    return "_lowered_step_current"
+
+
+def lowered_step_xt_function_name() -> str:
+    return "lowered_step_xt"
+
+
 def lowered_run_function_name() -> str:
     return "lowered_run"
 
@@ -140,6 +148,7 @@ class LoweredInterpreterEntrypoint:
 
 class LoweredInterpreterMode(Enum):
     STEP = "step"
+    STEP_XT = "step_xt"
     RUN = "run"
 
 
@@ -148,6 +157,7 @@ class LoweredRuntimeArtifacts:
     module: ir.Module
     compiled: object
     step: LoweredInterpreterEntrypoint
+    step_xt: LoweredInterpreterEntrypoint
     run: LoweredInterpreterEntrypoint
 
 
@@ -475,23 +485,19 @@ def emit_descriptor_continuation(
         builder.branch(halt_block)
 
 
-def define_lowered_interpreter(
-    module: ir.Module,
-    *,
-    function_name: str,
-    run_to_completion: bool,
-) -> None:
+def define_lowered_step_current(module: ir.Module) -> ir.Function:
     state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
     function = ir.Function(
         module,
         ir.FunctionType(VOID, [state_ptr_type]),
-        name=function_name,
+        name=lowered_step_current_function_name(),
     )
+    function.linkage = "internal"
+    function.attributes.add("inlinehint")
     builder = ir.IRBuilder(function.append_basic_block(name="entry"))
     state_ptr = function.args[0]
     state_ptr.name = "state"
     state = STATE_HANDLE.bind(builder, state_ptr)
-    fetch_block = function.append_basic_block("fetch")
     dispatch_current_block = function.append_basic_block("dispatch_current_word")
     dispatch_custom_block = function.append_basic_block("dispatch_custom_word")
     dispatch_primitive_block = function.append_basic_block("dispatch_primitive")
@@ -500,11 +506,7 @@ def define_lowered_interpreter(
     refetch_block = function.append_basic_block("refetch")
     halt_block = function.append_basic_block("halt")
     return_block = function.append_basic_block("return")
-    builder.branch(fetch_block)
-
-    with builder.goto_block(fetch_block):
-        emit_fetch_current_xt(builder, state, name_prefix=f"{function_name}_fetch")
-        builder.branch(dispatch_current_block)
+    builder.branch(dispatch_current_block)
 
     current_word = emit_dispatch_current_word(
         builder=builder,
@@ -513,7 +515,7 @@ def define_lowered_interpreter(
         dispatch_custom_block=dispatch_custom_block,
         dispatch_primitive_block=dispatch_primitive_block,
         dispatch_resolved_block=dispatch_resolved_block,
-        name_prefix=function_name,
+        name_prefix=lowered_step_current_function_name(),
     )
 
     builder.position_at_end(dispatch_resolved_block)
@@ -578,11 +580,8 @@ def define_lowered_interpreter(
         builder.cbranch(can_refetch, refetch_in_bounds_block, refetch_done_block)
 
     with builder.goto_block(refetch_in_bounds_block):
-        if run_to_completion:
-            builder.branch(fetch_block)
-        else:
-            emit_fetch_current_xt(builder, state, name_prefix="step_refetch")
-            builder.branch(refetch_done_block)
+        emit_fetch_current_xt(builder, state, name_prefix="step_refetch")
+        builder.branch(refetch_done_block)
 
     with builder.goto_block(refetch_done_block):
         builder.branch(return_block)
@@ -592,22 +591,78 @@ def define_lowered_interpreter(
 
     with builder.goto_block(return_block):
         builder.ret_void()
+    return function
 
 
 def define_lowered_step(module: ir.Module) -> None:
-    define_lowered_interpreter(
+    state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
+    helper = module.get_global(lowered_step_current_function_name())
+    function = ir.Function(
         module,
-        function_name=lowered_step_function_name(),
-        run_to_completion=False,
+        ir.FunctionType(VOID, [state_ptr_type]),
+        name=lowered_step_function_name(),
     )
+    builder = ir.IRBuilder(function.append_basic_block(name="entry"))
+    state_ptr = function.args[0]
+    state_ptr.name = "state"
+    state = STATE_HANDLE.bind(builder, state_ptr)
+    emit_fetch_current_xt(builder, state, name_prefix=f"{lowered_step_function_name()}_fetch")
+    builder.call(helper, [state_ptr], tail="tail")
+    builder.ret_void()
+
+
+def define_lowered_step_xt(module: ir.Module) -> None:
+    state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
+    helper = module.get_global(lowered_step_current_function_name())
+    function = ir.Function(
+        module,
+        ir.FunctionType(VOID, [state_ptr_type, I32]),
+        name=lowered_step_xt_function_name(),
+    )
+    builder = ir.IRBuilder(function.append_basic_block(name="entry"))
+    state_ptr = function.args[0]
+    state_ptr.name = "state"
+    xt_arg = function.args[1]
+    xt_arg.name = "xt"
+    state = STATE_HANDLE.bind(builder, state_ptr)
+    state.current_xt.store(xt_arg)
+    builder.call(helper, [state_ptr], tail="tail")
+    builder.ret_void()
 
 
 def define_lowered_run(module: ir.Module) -> None:
-    define_lowered_interpreter(
+    state_ptr_type = STATE_HANDLE.ir_type.as_pointer()
+    helper = module.get_global(lowered_step_current_function_name())
+    function = ir.Function(
         module,
-        function_name=lowered_run_function_name(),
-        run_to_completion=True,
+        ir.FunctionType(VOID, [state_ptr_type]),
+        name=lowered_run_function_name(),
     )
+    builder = ir.IRBuilder(function.append_basic_block(name="entry"))
+    state_ptr = function.args[0]
+    state_ptr.name = "state"
+    state = STATE_HANDLE.bind(builder, state_ptr)
+    fetch_block = function.append_basic_block("fetch")
+    after_step_block = function.append_basic_block("after_step")
+    return_block = function.append_basic_block("return")
+    builder.branch(fetch_block)
+
+    with builder.goto_block(fetch_block):
+        emit_fetch_current_xt(builder, state, name_prefix=f"{lowered_run_function_name()}_fetch")
+        builder.call(helper, [state_ptr])
+        builder.branch(after_step_block)
+
+    with builder.goto_block(after_step_block):
+        halted = state.halt_requested.load(name="run_halt_requested")
+        still_running = builder.icmp_unsigned("==", halted, TRUE_BIT.type(0), name="run_still_running")
+        ip = state.ip.load(name="run_ip")
+        thread_length = state.thread_length.load(name="run_thread_length")
+        in_bounds = builder.icmp_signed("<", ip, thread_length, name="run_ip_in_bounds")
+        continue_running = builder.and_(still_running, in_bounds, name="run_continue")
+        builder.cbranch(continue_running, fetch_block, return_block)
+
+    with builder.goto_block(return_block):
+        builder.ret_void()
 
 
 def build_lowered_runtime(
@@ -619,7 +674,9 @@ def build_lowered_runtime(
     module = ir.Module(name="lowered_handler_seam")
     module.triple = binding.get_default_triple()
     module.data_layout = str(target_machine.target_data)
+    define_lowered_step_current(module)
     define_lowered_step(module)
+    define_lowered_step_xt(module)
     define_lowered_run(module)
 
     compiled = compile_ir_module(module, speed_level=speed_level)
@@ -628,6 +685,12 @@ def build_lowered_runtime(
         None,
         ctypes.POINTER(LoweredLoopState),
     )(lowered_step_address)
+    lowered_step_xt_address = compiled.function_address(lowered_step_xt_function_name())
+    lowered_step_xt = ctypes.CFUNCTYPE(
+        None,
+        ctypes.POINTER(LoweredLoopState),
+        ctypes.c_int32,
+    )(lowered_step_xt_address)
     lowered_run_address = compiled.function_address(lowered_run_function_name())
     lowered_run = ctypes.CFUNCTYPE(
         None,
@@ -642,6 +705,13 @@ def build_lowered_runtime(
             cfunc=lowered_step,
             address=lowered_step_address,
             description="trace-friendly one-step lowered NEXT entrypoint",
+        ),
+        step_xt=LoweredInterpreterEntrypoint(
+            mode=LoweredInterpreterMode.STEP_XT,
+            function_name=lowered_step_xt_function_name(),
+            cfunc=lowered_step_xt,
+            address=lowered_step_xt_address,
+            description="direct xt-fed one-step lowered dispatch entrypoint",
         ),
         run=LoweredInterpreterEntrypoint(
             mode=LoweredInterpreterMode.RUN,

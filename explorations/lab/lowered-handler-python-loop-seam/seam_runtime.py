@@ -34,6 +34,7 @@ class PreparedScenarioExecution:
     resolved_words: tuple[ResolvedWord, ...]
     thread_records: dict[int, ThreadRecord]
     custom_word_map: dict[int, ResolvedWord]
+    direct_xt: int | None
 
 
 def dictionary_thread_ptr(memory: dictionary.DictionaryMemory, cell_index: int) -> ctypes._Pointer[ctypes.c_int32]:  # type: ignore[attr-defined]
@@ -210,6 +211,13 @@ def prepare_scenario_execution(scenario: Scenario) -> PreparedScenarioExecution:
     entry_ptr = ctypes.cast(entry_buffer, ctypes.POINTER(ctypes.c_int32))
     state.thread_cells = entry_ptr
     state.thread_length = len(resolved_entry_thread)
+    direct_xt: int | None = None
+    if scenario.run_this_xt_name is not None:
+        found_word = dictionary_runtime.find_word(scenario.run_this_xt_name)
+        if found_word is None:
+            raise RuntimeError(f"direct xt lookup failed for {scenario.run_this_xt_name!r}")
+        direct_xt = found_word.cfa_index
+        state.ip = -1
 
     thread_records: dict[int, ThreadRecord] = {
         pointer_key(entry_ptr): ThreadRecord(name="entry", thread=resolved_entry_thread)
@@ -230,18 +238,52 @@ def prepare_scenario_execution(scenario: Scenario) -> PreparedScenarioExecution:
         resolved_words=resolved_words,
         thread_records=thread_records,
         custom_word_map=custom_word_map,
+        direct_xt=direct_xt,
     )
 
 
 def execute_scenario_stepwise(
     scenario: Scenario,
     lowered_step: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+    lowered_step_xt: ctypes._CFuncPtr | None = None,  # type: ignore[attr-defined]
 ) -> ScenarioResult:
     prepared = prepare_scenario_execution(scenario)
     state = prepared.state
     trace_rows: list[TraceRow] = []
 
     while not halt_requested(state):
+        if scenario.run_this_xt_name is not None and len(trace_rows) == 0:
+            if lowered_step_xt is None or prepared.direct_xt is None:
+                raise RuntimeError("direct xt scenario requires lowered_step_xt and a resolved direct xt")
+
+            descriptor, word_name = resolve_word_descriptor(prepared.direct_xt, prepared.custom_word_map)
+            ensure_data_stack_requirements(state, descriptor)
+            ensure_return_stack_requirements(state, descriptor)
+            stack_before = stack_snapshot(state)
+            flags_before = state_flags_value(state)
+            backend = "jit"
+            ip = int(state.ip)
+            lowered_step_xt(prepared.state_ptr, prepared.direct_xt)
+            note = "install an externally supplied xt as the current word and dispatch it through the lowered center"
+
+            trace_rows.append(
+                TraceRow(
+                    step=len(trace_rows),
+                    ip=ip,
+                    word=word_name,
+                    backend=backend,
+                    stack_before=stack_before,
+                    stack_after=stack_snapshot(state),
+                    state_flags_before=flags_before,
+                    state_flags_after=state_flags_value(state),
+                    note=note,
+                )
+            )
+
+            if halt_requested(state):
+                break
+            continue
+
         current_record = current_thread_record(state, prepared.thread_records)
         ip = int(state.ip)
         if ip >= len(current_record.thread):
@@ -292,9 +334,17 @@ def execute_scenario_stepwise(
 def execute_scenario_runmode(
     scenario: Scenario,
     lowered_run: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+    lowered_step_xt: ctypes._CFuncPtr | None = None,  # type: ignore[attr-defined]
 ) -> ScenarioResult:
     prepared = prepare_scenario_execution(scenario)
-    lowered_run(prepared.state_ptr)
+    if scenario.run_this_xt_name is not None:
+        if lowered_step_xt is None or prepared.direct_xt is None:
+            raise RuntimeError("direct xt scenario requires lowered_step_xt and a resolved direct xt")
+        lowered_step_xt(prepared.state_ptr, prepared.direct_xt)
+        if not halt_requested(prepared.state):
+            lowered_run(prepared.state_ptr)
+    else:
+        lowered_run(prepared.state_ptr)
     return ScenarioResult(
         resolved_thread=prepared.resolved_thread,
         resolved_words=prepared.resolved_words,
@@ -308,15 +358,17 @@ def execute_scenario_runmode(
 def execute_scenario(
     scenario: Scenario,
     lowered_step: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+    lowered_step_xt: ctypes._CFuncPtr | None = None,  # type: ignore[attr-defined]
 ) -> ScenarioResult:
-    return execute_scenario_stepwise(scenario, lowered_step)
+    return execute_scenario_stepwise(scenario, lowered_step, lowered_step_xt)
 
 
 def execute_scenario_to_completion(
     scenario: Scenario,
     lowered_run: ctypes._CFuncPtr,  # type: ignore[attr-defined]
+    lowered_step_xt: ctypes._CFuncPtr | None = None,  # type: ignore[attr-defined]
 ) -> ScenarioResult:
-    return execute_scenario_runmode(scenario, lowered_run)
+    return execute_scenario_runmode(scenario, lowered_run, lowered_step_xt)
 
 
 def assert_result_matches(
