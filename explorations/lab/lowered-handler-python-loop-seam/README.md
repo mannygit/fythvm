@@ -178,6 +178,44 @@ Other local hosts should use Docker:
 docker compose run --rm dev uv run python explorations/lab/lowered-handler-python-loop-seam/run.py
 ```
 
+## How to Visualize the Lowered CFG
+
+If you have LLVM `opt` and Graphviz `dot` available on your machine, the project-local
+renderer can turn the seam-lab IR artifacts into SVG CFGs plus a browsable HTML index:
+
+```bash
+uv run python scripts/render_llvm_graphs.py
+```
+
+That defaults to the optimized seam-lab artifact at:
+
+- [/Users/manny/fythvm/lowered-handler-python-loop-seam.O3.ll](/Users/manny/fythvm/lowered-handler-python-loop-seam.O3.ll:1)
+
+and writes a timestamped output directory under:
+
+- `/Users/manny/fythvm/llvm-viz-output/`
+
+Useful variants:
+
+```bash
+uv run python scripts/render_llvm_graphs.py --artifact raw
+uv run python scripts/render_llvm_graphs.py --focus _lowered_step_current lowered_run
+uv run python scripts/render_llvm_graphs.py --input /absolute/path/to/some.ll
+```
+
+The default focus list is tuned for this lab:
+
+- `_lowered_step_current`
+- `lowered_run`
+- `lowered_step`
+- `lowered_step_xt`
+
+That makes it easier to inspect the exact seam questions this lab keeps surfacing:
+
+- where the one-step current-word center lives
+- where the real lowered inner loop lives
+- which entrypoints are just feeders into that center
+
 ## What It Shows
 
 The run prints:

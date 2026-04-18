@@ -186,3 +186,6 @@ cython_debug/
 
 # Seam-lab LLVM IR artifacts
 /lowered-handler-python-loop-seam*.ll
+
+# Project-local LLVM graphviz output
+/llvm-viz-output/
