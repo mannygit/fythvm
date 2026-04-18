@@ -144,6 +144,39 @@ SCENARIOS = (
         ),
     ),
     Scenario(
+        name="jit-nested-docol-then-jit-exit-then-jit-halt",
+        thread=(
+            "OUTER",
+            int(dictionary.PrimitiveInstruction.HALT),
+        ),
+        expected_stack=(5,),
+        expected_final_ip=1,
+        expected_state_flags=STATE_HALT_REQUESTED,
+        expected_trace_backends=("jit", "jit", "jit", "jit", "jit", "jit", "jit", "jit"),
+        custom_words=(
+            WordBlueprint(
+                name="INNER",
+                handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
+                thread=(
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    2,
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    3,
+                    int(dictionary.PrimitiveInstruction.ADD),
+                    int(dictionary.PrimitiveInstruction.EXIT),
+                ),
+            ),
+            WordBlueprint(
+                name="OUTER",
+                handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
+                thread=(
+                    "INNER",
+                    int(dictionary.PrimitiveInstruction.EXIT),
+                ),
+            ),
+        ),
+    ),
+    Scenario(
         name="lookup-then-jit-docol-then-jit-exit-then-jit-halt",
         thread=(int(dictionary.PrimitiveInstruction.HALT),),
         expected_stack=(5,),
@@ -167,6 +200,23 @@ SCENARIOS = (
         lookup_then_execute_name="SUM23",
     ),
     Scenario(
+        name="jit-execute-primitive-xt-then-jit-halt",
+        thread=(
+            int(dictionary.PrimitiveInstruction.LIT),
+            2,
+            int(dictionary.PrimitiveInstruction.LIT),
+            3,
+            int(dictionary.PrimitiveInstruction.LIT),
+            int(dictionary.PrimitiveInstruction.ADD),
+            int(dictionary.PrimitiveInstruction.EXECUTE),
+            int(dictionary.PrimitiveInstruction.HALT),
+        ),
+        expected_stack=(5,),
+        expected_final_ip=7,
+        expected_state_flags=STATE_HALT_REQUESTED,
+        expected_trace_backends=("jit", "jit", "jit", "jit", "jit"),
+    ),
+    Scenario(
         name="jit-execute-custom-word-then-jit-halt",
         thread=(
             int(dictionary.PrimitiveInstruction.LIT),
@@ -188,6 +238,33 @@ SCENARIOS = (
                     int(dictionary.PrimitiveInstruction.LIT),
                     3,
                     int(dictionary.PrimitiveInstruction.ADD),
+                    int(dictionary.PrimitiveInstruction.EXIT),
+                ),
+            ),
+        ),
+    ),
+    Scenario(
+        name="jit-docol-then-execute-primitive-xt-then-jit-halt",
+        thread=(
+            "RUNADD",
+            int(dictionary.PrimitiveInstruction.HALT),
+        ),
+        expected_stack=(5,),
+        expected_final_ip=1,
+        expected_state_flags=STATE_HALT_REQUESTED,
+        expected_trace_backends=("jit", "jit", "jit", "jit", "jit", "jit", "jit"),
+        custom_words=(
+            WordBlueprint(
+                name="RUNADD",
+                handler_id=int(dictionary.PrimitiveInstruction.DOCOL),
+                thread=(
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    2,
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    3,
+                    int(dictionary.PrimitiveInstruction.LIT),
+                    int(dictionary.PrimitiveInstruction.ADD),
+                    int(dictionary.PrimitiveInstruction.EXECUTE),
                     int(dictionary.PrimitiveInstruction.EXIT),
                 ),
             ),
