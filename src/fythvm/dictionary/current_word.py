@@ -15,7 +15,7 @@ from .schema import NULL_INDEX
 
 @dataclass(frozen=True)
 class CurrentWordIR:
-    """Explicit current-word facts resolved through real dictionary layout."""
+    """Canonical current-word facts resolved through real dictionary layout."""
 
     state: BoundStructView
     dictionary_ir: DictionaryIR
@@ -111,4 +111,52 @@ class CurrentWordIR:
             found_word_index=found_word_index,
             resolved_handler_id=resolved_handler_id,
             current_xt_field_name=current_xt_field_name,
+        )
+
+
+@dataclass(frozen=True)
+class RunCurrentXtIR:
+    """Shared center for executing the currently installed xt."""
+
+    current_word: CurrentWordIR
+    dispatch_current_block: ir.Block
+    dispatch_custom_block: ir.Block
+    dispatch_primitive_block: ir.Block
+    dispatch_resolved_block: ir.Block
+
+    @property
+    def resolved_handler_id(self) -> ir.Value:
+        return self.current_word.resolved_handler_id
+
+    @classmethod
+    def resolve_from_state(
+        cls,
+        *,
+        builder: ir.IRBuilder,
+        state: BoundStructView,
+        dispatch_current_block: ir.Block,
+        dispatch_custom_block: ir.Block,
+        dispatch_primitive_block: ir.Block,
+        dispatch_resolved_block: ir.Block,
+        name_prefix: str,
+        current_xt_field_name: str = "current_xt",
+        dictionary_memory_field_name: str = "dictionary_memory",
+    ) -> "RunCurrentXtIR":
+        with builder.goto_block(dispatch_current_block):
+            current_word = CurrentWordIR.resolve_from_state(
+                builder=builder,
+                state=state,
+                dispatch_custom_block=dispatch_custom_block,
+                dispatch_primitive_block=dispatch_primitive_block,
+                dispatch_resolved_block=dispatch_resolved_block,
+                name_prefix=name_prefix,
+                current_xt_field_name=current_xt_field_name,
+                dictionary_memory_field_name=dictionary_memory_field_name,
+            )
+        return cls(
+            current_word=current_word,
+            dispatch_current_block=dispatch_current_block,
+            dispatch_custom_block=dispatch_custom_block,
+            dispatch_primitive_block=dispatch_primitive_block,
+            dispatch_resolved_block=dispatch_resolved_block,
         )

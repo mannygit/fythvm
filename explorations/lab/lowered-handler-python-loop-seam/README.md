@@ -187,11 +187,14 @@ renderer can turn the seam-lab IR artifacts into SVG CFGs plus a browsable HTML 
 uv run python scripts/render_llvm_graphs.py
 ```
 
-That defaults to the optimized seam-lab artifact at:
+That now defaults to a single comparison bundle containing both:
 
+- [/Users/manny/fythvm/lowered-handler-python-loop-seam.ll](/Users/manny/fythvm/lowered-handler-python-loop-seam.ll:1)
 - [/Users/manny/fythvm/lowered-handler-python-loop-seam.O3.ll](/Users/manny/fythvm/lowered-handler-python-loop-seam.O3.ll:1)
 
-and writes a timestamped output directory under:
+If you only want one side, you can still render just the raw or optimized artifact:
+
+- and it writes a timestamped output directory under:
 
 - `/Users/manny/fythvm/llvm-viz-output/`
 
@@ -199,6 +202,7 @@ Useful variants:
 
 ```bash
 uv run python scripts/render_llvm_graphs.py --artifact raw
+uv run python scripts/render_llvm_graphs.py --artifact o3
 uv run python scripts/render_llvm_graphs.py --focus _lowered_step_current lowered_run
 uv run python scripts/render_llvm_graphs.py --input /absolute/path/to/some.ll
 ```

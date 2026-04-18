@@ -399,27 +399,6 @@ def emit_fetch_current_xt(
     return current_xt
 
 
-def emit_dispatch_current_word(
-    *,
-    builder: ir.IRBuilder,
-    state: LoweredLoopStateView,
-    dispatch_current_block: ir.Block,
-    dispatch_custom_block: ir.Block,
-    dispatch_primitive_block: ir.Block,
-    dispatch_resolved_block: ir.Block,
-    name_prefix: str,
-) -> dictionary.CurrentWordIR:
-    with builder.goto_block(dispatch_current_block):
-        return dictionary.CurrentWordIR.resolve_from_state(
-            builder=builder,
-            state=state,
-            dispatch_custom_block=dispatch_custom_block,
-            dispatch_primitive_block=dispatch_primitive_block,
-            dispatch_resolved_block=dispatch_resolved_block,
-            name_prefix=name_prefix,
-        )
-
-
 def _continuation_block_for_kind(
     continuation: dictionary.ContinuationKind,
     *,
@@ -508,7 +487,7 @@ def define_lowered_step_current(module: ir.Module) -> ir.Function:
     return_block = function.append_basic_block("return")
     builder.branch(dispatch_current_block)
 
-    current_word = emit_dispatch_current_word(
+    run_current_xt = dictionary.RunCurrentXtIR.resolve_from_state(
         builder=builder,
         state=state,
         dispatch_current_block=dispatch_current_block,
@@ -520,7 +499,7 @@ def define_lowered_step_current(module: ir.Module) -> ir.Function:
 
     builder.position_at_end(dispatch_resolved_block)
     default_block = function.append_basic_block("unsupported")
-    dispatcher = builder.switch(current_word.resolved_handler_id, default_block)
+    dispatcher = builder.switch(run_current_xt.resolved_handler_id, default_block)
     case_blocks: dict[int, ir.Block] = {}
     for spec in LOWERED_HANDLER_SPECS.values():
         descriptor = dictionary.instruction_descriptor_for_handler_id(spec.handler_id)
@@ -547,7 +526,7 @@ def define_lowered_step_current(module: ir.Module) -> ir.Function:
                 builder=builder,
                 state=state,
                 descriptor=descriptor,
-                current_word=current_word,
+                current_word=run_current_xt.current_word,
                 labeled_continuation=labeled_continuation,
             )
             labeled_continuation_value = spec.op(builder, **kwargs)

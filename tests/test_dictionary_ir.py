@@ -5,7 +5,14 @@ import ctypes
 from llvmlite import binding, ir
 
 from fythvm.codegen import StructHandle, compile_ir_module, configure_llvm
-from fythvm.dictionary import CurrentWordIR, DictionaryIR, DictionaryMemory, DictionaryRuntime, NULL_INDEX
+from fythvm.dictionary import (
+    CurrentWordIR,
+    DictionaryIR,
+    DictionaryMemory,
+    DictionaryRuntime,
+    NULL_INDEX,
+    RunCurrentXtIR,
+)
 from fythvm.dictionary.layout import dictionary_memory_handle
 
 
@@ -265,3 +272,47 @@ def test_current_word_ir_resolves_thread_ref_from_cfa_and_length_table() -> None
 
     state = TinyCurrentWordState(ctypes.pointer(runtime.memory), word.cfa_index)
     assert read_thread_signature(ctypes.byref(state), thread_lengths) == 3101
+
+
+def test_run_current_xt_ir_resolves_installed_xt_through_shared_center() -> None:
+    configure_llvm()
+
+    runtime = DictionaryRuntime()
+    custom = runtime.create_word("sum23", handler_id=76)
+    state_handle = StructHandle.from_ctypes("tiny current xt state", TinyCurrentWordState)
+
+    module = ir.Module(name="run_current_xt_ir")
+    module.triple = binding.get_default_triple()
+    fn = ir.Function(module, ir.FunctionType(I32, [state_handle.ir_type.as_pointer()]), name="run_current_xt")
+    builder = ir.IRBuilder(fn.append_basic_block("entry"))
+    state = state_handle.bind(builder, fn.args[0])
+    dispatch_current = fn.append_basic_block("dispatch_current_word")
+    dispatch_custom = fn.append_basic_block("dispatch_custom")
+    dispatch_primitive = fn.append_basic_block("dispatch_primitive")
+    dispatch_resolved = fn.append_basic_block("dispatch_resolved")
+    builder.branch(dispatch_current)
+
+    run_current_xt = RunCurrentXtIR.resolve_from_state(
+        builder=builder,
+        state=state,
+        dispatch_current_block=dispatch_current,
+        dispatch_custom_block=dispatch_custom,
+        dispatch_primitive_block=dispatch_primitive,
+        dispatch_resolved_block=dispatch_resolved,
+        name_prefix="run_current_xt",
+    )
+
+    builder.position_at_end(dispatch_resolved)
+    builder.ret(run_current_xt.resolved_handler_id)
+
+    compiled = compile_ir_module(module)
+    run_current_xt_cfunc = ctypes.CFUNCTYPE(
+        ctypes.c_int32,
+        ctypes.POINTER(TinyCurrentWordState),
+    )(compiled.function_address("run_current_xt"))
+
+    state = TinyCurrentWordState(ctypes.pointer(runtime.memory), custom.cfa_index)
+    assert run_current_xt_cfunc(ctypes.byref(state)) == 76
+
+    state.current_xt = 15
+    assert run_current_xt_cfunc(ctypes.byref(state)) == 15
